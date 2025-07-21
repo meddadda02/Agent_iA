@@ -1,0 +1,56 @@
+{
+  "whitelist_expressions": [
+    "tuer le temps",
+    "tuer le temps intelligemment",
+    "tuer le temps pendant",
+    "tuer le temps en attendant",
+    "mourir de rire",
+    "mourir d'envie",
+    "crever de faim"
+  ],
+  "insult_patterns": [
+    "\\b\\w+ est un[e]? \\w+\\b",
+    "\\b\\w+ est \\w+\\b",
+    "tu es \\w+",
+    "vous êtes \\w+",
+    "espèce de \\w+",
+    "sale \\w+",
+    "putain de \\w+"
+  ],
+  "animal_insults": [
+    "âne",
+    "ânesse",
+    "cochon",
+    "porc",
+    "chien",
+    "chienne",
+    "vache",
+    "taureau",
+    "rat",
+    "serpent",
+    "ver"
+  ],
+  "bert_toxic_labels": ["toxic", "severe_toxic", "obscene", "threat", "insult", "identity_hate"],
+  "groq_models": ["llama3-8b-8192", "llama3-70b-8192", "mixtral-8x7b-32768", "gemma-7b-it"],
+  "moderation_categories": {
+    "insultes": "Insultes directes ou indirectes, même subtiles, utilisant des animaux/objets pour rabaisser",
+    "harcèlement": "Attaques personnelles, moqueries, humiliations",
+    "discours_haineux": "Discrimination, racisme, homophobie",
+    "contenu_sexuel": "Références sexuelles explicites ou suggestives",
+    "violence": "Menaces, incitation à la violence",
+    "contenu_dangereux": "Promotion d'activités illégales/dangereuses"
+    
+  },
+  "thresholds": {
+    "bert_toxicity": 0.4,
+    "insult_confidence": 0.8,
+    "global_confidence": 0.5,
+    "prenoms_sensibles_confidence": 0.9,
+    "places_interdits_confidence": 0.9,
+    "spam_confidence": 0.7
+  },
+  "limits": {
+    "max_text_length": 5000
+  },
+  "fallback_keywords": ["insulte", "offense", "non_conforme", "violation"]
+}
