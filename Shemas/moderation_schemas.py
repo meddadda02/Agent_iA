@@ -27,3 +27,6 @@ class ModerationHistoryResponse(BaseModel):
 #Afficher les modèles Groq disponibles
 class ModelsResponse(BaseModel):
     models: List[str]
+
+class UpdateQuestionInput(BaseModel):
+    question: str
