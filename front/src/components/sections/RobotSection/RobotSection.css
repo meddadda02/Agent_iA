@@ -1,0 +1,119 @@
+.robot-section {
+  position: relative;
+  width: 100%;
+  height: 450px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  margin: 2rem 0;
+}
+
+.robot-section__glow {
+  position: absolute;
+  width: 400px;
+  height: 400px;
+  background: radial-gradient(circle, rgba(59, 130, 246, 0.15), rgba(168, 85, 247, 0.1), transparent);
+  border-radius: 50%;
+  filter: blur(60px);
+  z-index: -1;
+  animation: pulse-glow 3s ease-in-out infinite;
+}
+
+.robot-section__image {
+  width: 350px;
+  height: 350px;
+  object-fit: contain;
+  filter: drop-shadow(0 30px 60px rgba(0, 0, 0, 0.3));
+  animation: float 4s ease-in-out infinite;
+  z-index: 2;
+}
+
+.robot-section__particle {
+  position: absolute;
+  border-radius: 50%;
+  animation: float-around 6s ease-in-out infinite;
+}
+
+.robot-section__particle--green {
+  top: 20%;
+  right: 15%;
+  width: 16px;
+  height: 16px;
+  background: #10b981;
+  box-shadow: 0 0 25px rgba(16, 185, 129, 0.8);
+  animation-delay: 0s;
+}
+
+.robot-section__particle--blue {
+  bottom: 25%;
+  left: 10%;
+  width: 12px;
+  height: 12px;
+  background: #3b82f6;
+  box-shadow: 0 0 20px rgba(59, 130, 246, 0.8);
+  animation-delay: 2s;
+}
+
+.robot-section__particle--pink {
+  top: 60%;
+  left: 20%;
+  width: 8px;
+  height: 8px;
+  background: #ec4899;
+  box-shadow: 0 0 15px rgba(236, 72, 153, 0.8);
+  animation-delay: 4s;
+}
+
+@keyframes float {
+  0%,
+  100% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-15px);
+  }
+}
+
+@keyframes float-around {
+  0%,
+  100% {
+    transform: translateY(0px) translateX(0px);
+    opacity: 0.8;
+  }
+  33% {
+    transform: translateY(-20px) translateX(10px);
+    opacity: 1;
+  }
+  66% {
+    transform: translateY(10px) translateX(-15px);
+    opacity: 0.9;
+  }
+}
+
+@keyframes pulse-glow {
+  0%,
+  100% {
+    opacity: 0.5;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.8;
+    transform: scale(1.1);
+  }
+}
+
+@media (max-width: 480px) {
+  .robot-section {
+    height: 350px;
+  }
+
+  .robot-section__image {
+    width: 280px;
+    height: 280px;
+  }
+
+  .robot-section__glow {
+    width: 320px;
+    height: 320px;
+  }
+}
