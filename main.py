@@ -8,6 +8,7 @@ import Routers.user_route as user_route
 import Routers.analyzer_route as analyzer_route
 import Models.analyzer_model as Analyzer
 import Models.user_model as User
+from Routers.image_router import router as image_router  # ✅ <-- Ajout route image
 
 # Créer l'application FastAPI
 app = FastAPI(
@@ -25,15 +26,21 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Créer les tables dans la base de données
+# ✅ Créer les tables dans la base de données
 User.Base.metadata.create_all(bind=engine)
-app.include_router(user_route.router)
 Analyzer.Base.metadata.create_all(bind=engine)
-app.include_router(analyzer_route.router)
 
-# Servir les fichiers statiques (images)
+# ✅ Enregistrer les routers
+app.include_router(user_route.router)
+app.include_router(analyzer_route.router)
+app.include_router(image_router)  # <-- Ajout image_router
+
+# ✅ Dossier pour stocker les fichiers uploadés
 uploads_dir = "uploads"
 if not os.path.exists(uploads_dir):
     os.makedirs(uploads_dir)
 
+# ✅ Monter les fichiers statiques (pour voir les images via /images/nom_image.jpg)
 app.mount("/images", StaticFiles(directory=uploads_dir), name="images")
+
+app.include_router(image_router)
