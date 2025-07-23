@@ -15,13 +15,16 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 class UserService:
     @staticmethod
-    def create_user(db: Session, username: str, email: str, password: str, bio: str = None, photo_path: str = None):
+    def create_user(db: Session, username: str, email: str, password: str, confirm_password: str, photo_path: str = None):
         # Vérifier si l'utilisateur existe déjà
         if db.query(User).filter(User.username == username).first():
             raise HTTPException(status_code=400, detail="Username already exists")
         
         if db.query(User).filter(User.email == email).first():
             raise HTTPException(status_code=400, detail="Email already exists")
+
+        if password != confirm_password:
+            raise HTTPException(status_code=400, detail="Passwords do not match")
         
         # Hacher le mot de passe
         hashed_password = pwd_context.hash(password)
@@ -31,7 +34,7 @@ class UserService:
             username=username,
             email=email,
             password_hash=hashed_password,
-            bio=bio,
+            Confirm_password_hash=hashed_password, # Storing the same hash for confirm_password
             photo=photo_path
         )
         
@@ -48,13 +51,18 @@ class UserService:
         return user
     
     @staticmethod
-    def update_user(db: Session, user: User, **kwargs):
+    def update_user(db: Session, user: User, password: Optional[str] = None, confirm_password: Optional[str] = None, **kwargs):
+        # Handle password update with confirmation
+        if password is not None:
+            if confirm_password is None or password != confirm_password:
+                raise HTTPException(status_code=400, detail="Password and confirm password do not match or confirm password is missing.")
+            setattr(user, "password_hash", pwd_context.hash(password))
+            setattr(user, "Confirm_password_hash", pwd_context.hash(password)) # Update confirm_password_hash as well
+        
+        # Handle other updates
         for key, value in kwargs.items():
             if value is not None:
-                if key == "password":
-                    setattr(user, "password_hash", pwd_context.hash(value))
-                else:
-                    setattr(user, key, value)
+                setattr(user, key, value)
         
         db.commit()
         db.refresh(user)

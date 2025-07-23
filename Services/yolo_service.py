@@ -1,7 +1,6 @@
 from ultralytics import YOLO
 from PIL import Image
 import io
-
 # Charge le modèle YOLO une seule fois au démarrage
 model = YOLO("yolov8n.pt")  # Tu peux changer de modèle selon besoins (ex: yolov8m.pt)
 

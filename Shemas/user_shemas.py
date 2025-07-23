@@ -4,16 +4,16 @@ from pydantic import BaseModel, EmailStr
 class UserBase(BaseModel):
     username: str
     email: EmailStr
-    bio: Optional[str] = None
 
 class UserCreate(UserBase):
     password: str
+    confirm_password: str
 
 class UserUpdate(BaseModel):
     username: Optional[str] = None
     email: Optional[EmailStr] = None
-    bio: Optional[str] = None
     password: Optional[str] = None
+    confirm_password: Optional[str] = None # Added confirm_password for updates
 
 class UserOut(UserBase):
     id: int

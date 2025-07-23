@@ -16,8 +16,8 @@ router = APIRouter(tags=["Authentication"])
 async def signup(
     username: str = Form(...),
     password: str = Form(...),
+    confirm_password: str = Form(...),
     email: str = Form(...),
-    bio: str = Form(None),
     photo: UploadFile = File(None),
     db: Session = Depends(get_db)
 ):
@@ -33,7 +33,7 @@ async def signup(
             username=username,
             email=email,
             password=password,
-            bio=bio,
+            confirm_password=confirm_password,
             photo_path=photo_path
         )
         
@@ -95,7 +95,6 @@ def get_current_user_info(
             id=current_user.id,
             username=current_user.username,
             email=current_user.email,
-            bio=current_user.bio,
             photo=photo_url,
             created_at=current_user.created_at.isoformat() if current_user.created_at else None
         )
@@ -107,8 +106,8 @@ def get_current_user_info(
 def update_current_user(
     username: Optional[str] = Form(None),
     email: Optional[str] = Form(None),
-    bio: Optional[str] = Form(None),
     password: Optional[str] = Form(None),
+    confirm_password: Optional[str] = Form(None), # Added confirm_password to form
     photo: UploadFile = File(None),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -121,16 +120,22 @@ def update_current_user(
             update_data["username"] = username
         if email:
             update_data["email"] = email
-        if bio:
-            update_data["bio"] = bio
-        if password:
-            update_data["password"] = password
+        
+        # Pass password and confirm_password separately to the service for validation
+        # The service will handle the matching logic
+        
         if photo and photo.filename:
             photo_path = FileService.save_image(photo)
             update_data["photo"] = photo_path
         
         # Mettre à jour l'utilisateur
-        updated_user = UserService.update_user(db, current_user, **update_data)
+        updated_user = UserService.update_user(
+            db, 
+            current_user, 
+            password=password, 
+            confirm_password=confirm_password, 
+            **update_data
+        )
         
         # Construire l'URL publique pour la photo
         photo_url = None
@@ -143,7 +148,6 @@ def update_current_user(
             id=updated_user.id,
             username=updated_user.username,
             email=updated_user.email,
-            bio=updated_user.bio,
             photo=photo_url,
             created_at=updated_user.created_at.isoformat() if updated_user.created_at else None
         )

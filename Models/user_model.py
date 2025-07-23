@@ -9,8 +9,8 @@ class User(Base):
     username = Column(String, unique=True, index=True, nullable=False)
     email = Column(String, unique=True, index=True, nullable=False)
     photo = Column(String, nullable=True)
-    bio = Column(String, nullable=True)
     password_hash = Column(String, nullable=False)
+    Confirm_password_hash = Column(String, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     jwt_token = Column(String, nullable=True)
 
