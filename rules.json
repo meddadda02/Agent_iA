@@ -1,22 +1,5 @@
 {
-  "whitelist_expressions": [
-    "tuer le temps",
-    "tuer le temps intelligemment",
-    "tuer le temps pendant",
-    "tuer le temps en attendant",
-    "mourir de rire",
-    "mourir d'envie",
-    "crever de faim"
-  ],
-  "insult_patterns": [
-    "\\b\\w+ est un[e]? \\w+\\b",
-    "\\b\\w+ est \\w+\\b",
-    "tu es \\w+",
-    "vous êtes \\w+",
-    "espèce de \\w+",
-    "sale \\w+",
-    "putain de \\w+"
-  ],
+  "insult_patterns": ["tu es \\w+", "vous êtes \\w+", "espèce de \\w+", "sale \\w+", "putain de \\w+"],
   "animal_insults": [
     "âne",
     "ânesse",
@@ -30,27 +13,32 @@
     "serpent",
     "ver"
   ],
+  "whitelist_expressions": [
+    "tuer le temps",
+    "tuer le temps intelligemment",
+    "tuer le temps pendant",
+    "tuer le temps en attendant",
+    "mourir de rire",
+    "mourir d'envie",
+    "crever de faim"
+  ],
   "bert_toxic_labels": ["toxic", "severe_toxic", "obscene", "threat", "insult", "identity_hate"],
   "groq_models": ["llama3-8b-8192", "llama3-70b-8192", "mixtral-8x7b-32768", "gemma-7b-it"],
   "moderation_categories": {
-    "insultes": "Insultes directes ou indirectes, même subtiles, utilisant des animaux/objets pour rabaisser",
-    "harcèlement": "Attaques personnelles, moqueries, humiliations",
-    "discours_haineux": "Discrimination, racisme, homophobie",
-    "contenu_sexuel": "Références sexuelles explicites ou suggestives",
-    "violence": "Menaces, incitation à la violence",
-    "contenu_dangereux": "Promotion d'activités illégales/dangereuses"
-    
-  },
-  "thresholds": {
-    "bert_toxicity": 0.4,
-    "insult_confidence": 0.8,
-    "global_confidence": 0.5,
-    "prenoms_sensibles_confidence": 0.9,
-    "places_interdits_confidence": 0.9,
-    "spam_confidence": 0.7
+    "insultes": "Insultes directes ou indirectes, même subtiles, utilisant des animaux/objets pour rabaisser, ou toute forme de langage dégradant.",
+    "harcèlement": "Attaques personnelles, moqueries, humiliations, menaces, ou incitation à la violence.",
+    "discours_haineux": "Discrimination, racisme, homophobie, sexisme, ou toute forme de haine basée sur l'identité.",
+    "contenu_sexuel": "Références sexuelles explicites ou suggestives, ou demandes de contenu sexuel.",
+    "violence": "Menaces, incitation à la violence, glorification de la violence, ou description graphique d'actes violents.",
+    "contenu_dangereux": "Promotion d'activités illégales/dangereuses, automutilation, ou extrémisme.",
+    "places_interdits": "Références à des places sensibles comme 'casa' ou 'israël' dans un contexte négatif ou conflictuel.",
+    "prenoms_sensibles": "Références à des prénoms sensibles comme 'mohammed' dans un contexte négatif ou dégradant.",
+    "spam": "Détection de spam comme 'gratuit' ou 'promotion' ou 'offre', liens non sollicités, ou messages répétitifs."
   },
   "limits": {
     "max_text_length": 5000
   },
   "fallback_keywords": ["insulte", "offense", "non_conforme", "violation"]
+
+
 }

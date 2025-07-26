@@ -14,7 +14,6 @@ class ContentCheckResponse(BaseModel):
     message: str
     processed_text: str
     violated_rules: List[str]
-    confidence_score: float
 
 class SupportedModelsResponse(BaseModel):
     models: List[str]
@@ -23,7 +22,6 @@ class ModerationHistoryResponse(BaseModel):
     id: int
     question: str
     response: Union[str, Dict[str, Any]]  # Accept string or dict
-    score: Optional[str] = None
     toxic: Optional[bool] = None
     date: Optional[str] = None
 

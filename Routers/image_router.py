@@ -62,7 +62,6 @@ async def analyze_image(
             user_id=current_user.id,
             question=filename,
             response=compatibility_json,
-            score=None,
             toxic=False,
             type="image"
         )
@@ -98,7 +97,6 @@ async def get_image_history(
             id=a.id,
             question=a.question,
             response=json.loads(a.response) if a.response else None,
-            score=a.score,
             toxic=a.toxic,
             date=a.date.isoformat() if a.date else None
         ) for a in analyses
@@ -130,7 +128,6 @@ async def update_image_analysis(
         id=analysis.id,
         question=analysis.question,
         response=json.loads(analysis.response) if analysis.response else None,
-        score=analysis.score,
         toxic=analysis.toxic,
         date=analysis.date.isoformat() if analysis.date else None
     )

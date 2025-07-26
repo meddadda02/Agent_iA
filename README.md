@@ -1,3 +1,5 @@
 # Agent_iA
-install  npm install --legacy-peer-deps
-apres npm run dev
+install  
+npm install --legacy-peer-deps
+apres 
+npm run dev

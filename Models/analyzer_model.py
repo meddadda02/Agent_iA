@@ -9,7 +9,6 @@ class Analyzer(Base):
     question = Column(Text, nullable=False)  # Contient soit le texte, soit le chemin du fichier image/audio
     type = Column(String(20), nullable=False, default="texte")  # 'texte', 'image', 'audio', 'video'
     response = Column(Text, nullable=False)
-    score = Column(String(50), nullable=True)
     toxic = Column(Boolean, nullable=True)
     date = Column(DateTime(timezone=True), server_default=func.now())
 

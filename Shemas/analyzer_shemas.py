@@ -5,14 +5,12 @@ from pydantic import BaseModel
 class AnalyzerCreate(BaseModel):
     question: str
     response: str
-    score: Optional[str] = None
     toxic: Optional[bool] = None
 #Retourner une analyse avec ID et date	/history
 class AnalyzerOut(BaseModel):
     id: int
     question: str
     response: str
-    score: Optional[str] = None
     toxic: Optional[bool] = None
     date: Optional[str] = None
 

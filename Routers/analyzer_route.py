@@ -1,11 +1,12 @@
-from fastapi import APIRouter, Depends, HTTPException,status
+from fastapi import APIRouter, Depends, HTTPException,status,UploadFile, File
 from sqlalchemy.orm import Session
-
+import tempfile
+import os
 from config import get_db
 from dependencies import get_current_user
 from Models.user_model import User
 from Models.analyzer_model import Analyzer
-
+from groq import Groq
 from Services.moderation_service import ModerationService
 from Shemas.moderation_schemas import TextInput, ContentCheckResponse, ModerationHistoryResponse, ModelsResponse,UpdateQuestionInput
 
@@ -44,7 +45,6 @@ async def get_moderation_history(
                       id=analysis.id,
                       question=analysis.question,
                       response=analysis.response,
-                      score=analysis.score,
                       toxic=analysis.toxic,
                       date=analysis.date.isoformat() if analysis.date else None
                   )
@@ -85,7 +85,6 @@ async def check_content(
           message=result["message"],
           processed_text=result["processed_text"],
           violated_rules=result["violated_rules"],
-          confidence_score=result["confidence_score"]
       )
 
   except ValueError as e:
@@ -129,7 +128,6 @@ async def search_moderation_history(
                         id=analysis.id,
                         question=analysis.question,
                         response=analysis.response,
-                        score=analysis.score,
                         toxic=analysis.toxic,
                         date=analysis.date.isoformat() if analysis.date else None
                     )
@@ -173,7 +171,6 @@ async def update_moderation_question(
             id=analysis.id,
             question=analysis.question,
             response=analysis.response,
-            score=analysis.score,
             toxic=analysis.toxic,
             date=analysis.date.isoformat() if analysis.date else None
         )
@@ -213,13 +210,6 @@ async def delete_moderation_analysis(
         print(f"❌ Erreur inattendue lors de la suppression de l'analyse {analysis_id}: {type(e).__name__}: {e}")
         raise HTTPException(status_code=500, detail="Erreur lors de la suppression de l'analyse")
 
-
-
-from fastapi import UploadFile, File
-import tempfile
-import os
-from groq import Groq
-
 @router.post("/moderation/audio", response_model=ContentCheckResponse)
 async def moderate_audio_file(
     audio_file: UploadFile = File(...),
@@ -246,7 +236,7 @@ async def moderate_audio_file(
         # 3. Analyse du texte transcrit
         result = await ModerationService.check_content_comprehensive(
             text=transcribed_text,
-            model="groq",  # Or any default
+            model="llama3-8b-8192",  # Use a default Groq model
             db=db,
             user_id=current_user.id
         )
@@ -262,7 +252,6 @@ async def moderate_audio_file(
             message=result["message"],
             processed_text=result["processed_text"],
             violated_rules=result["violated_rules"],
-            confidence_score=result["confidence_score"]
         )
 
     except Exception as e:
