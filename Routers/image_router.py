@@ -103,14 +103,13 @@ async def get_image_history(
     ]
 
 
-@router.patch("/image/moderation/history/{analysis_id}", response_model=ModerationHistoryResponse)
-async def update_image_analysis(
+@router.get("/image/moderation/history/{analysis_id}", response_model=ModerationHistoryResponse)
+async def get_image_analysis_by_id(
     analysis_id: int,
-    update_data: UpdateQuestionInput,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Met à jour la question d’une analyse d’image (authentifié et propriétaire)"""
+    """Récupère une analyse d’image par ID (authentifié et propriétaire)"""
     analysis = db.query(Analyzer).filter(
         Analyzer.id == analysis_id,
         Analyzer.user_id == current_user.id,
@@ -119,10 +118,6 @@ async def update_image_analysis(
 
     if not analysis:
         raise HTTPException(status_code=404, detail="Analyse non trouvée.")
-
-    analysis.question = update_data.question
-    db.commit()
-    db.refresh(analysis)
 
     return ModerationHistoryResponse(
         id=analysis.id,
