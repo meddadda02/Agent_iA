@@ -26,3 +26,12 @@ def analyze_with_yolo(image_bytes):
             })
 
     return detections
+
+
+def analyze_image_file(image_path):
+    """
+    Wrapper to analyze image from file path using the existing `analyze_with_yolo`.
+    """
+    with open(image_path, "rb") as f:
+        image_bytes = f.read()
+    return analyze_with_yolo(image_bytes)

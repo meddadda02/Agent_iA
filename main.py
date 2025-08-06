@@ -37,6 +37,11 @@ app.include_router(image_router)  # <-- Ajout image_router
 app.include_router(audio_route.router)  # Ajout du routeur audio
 # ✅ Dossier pour stocker les fichiers uploadés
 
+from Routers import video_route
+app.include_router(video_route.router)
+
+
+
 from Routers import audio_route
 app.include_router(audio_route.router)
 
