@@ -20,3 +20,4 @@ python-dotenv
 openai
 psycopg2-binary>=2.9.9
 pyspellchecker
+moviepy>=1.0.3
