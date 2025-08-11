@@ -16,6 +16,8 @@ router = APIRouter(tags=["Audio Moderation"])
 async def moderate_audio_file(
     file: UploadFile = File(...),
     model: str = "llama3-70b-8192",
+    langue: str = "",
+
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -26,21 +28,73 @@ async def moderate_audio_file(
         tmp.write(await file.read())
         tmp_path = tmp.name
 
+    import httpx
+    GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+    GROQ_AUDIO_URL = "https://api.groq.com/openai/v1/audio/transcriptions"
     try:
-        client = Groq(api_key=os.getenv("GROQ_API_KEY"))
         with open(tmp_path, "rb") as f:
-            transcription = client.audio.transcriptions.create(
-                model="whisper-large-v3",
-                file=(file.filename, f.read())
-            )
-        transcript = transcription.text.strip()
+            files = {
+                "file": (file.filename, f, file.content_type or "audio/mpeg"),
+            }
+            data = {
+                "model": "whisper-large-v3"
+            }
+            headers = {
+                "Authorization": f"Bearer {GROQ_API_KEY}"
+            }
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                response = await client.post(GROQ_AUDIO_URL, data=data, files=files, headers=headers)
+            if response.status_code != 200:
+                raise HTTPException(status_code=500, detail=f"Erreur Groq Whisper: {response.status_code} - {response.text}")
+            transcript = response.json().get("text", "").strip()
+            # Normalisation stricte pour garantir cohérence audio/texte
+            normalized_transcript = transcript.strip().lower()
+            while normalized_transcript and normalized_transcript[-1] in ".!?":
+                normalized_transcript = normalized_transcript[:-1]
+            normalized_transcript = normalized_transcript.strip()
 
-        result = await ModerationService.check_content_comprehensive(
-            text=transcript,
-            model=model,
-            db=db,
-            user_id=current_user.id
-        )
+        # Utiliser la langue détectée ou choisie (paramètre 'langue')
+        language = langue if langue else "fr"
+        # Enregistrer la transcription dans l'historique comme question (pour cohérence avec l'analyse texte)
+
+        # Ajout logique expressions familières/humoristiques
+        neutral_expressions = [
+            "what the fuck", "wtf", "oh fuck", "fuck it", "what the hell", "damn", "shit", "no way"
+        ]
+        is_neutral_expression = any(expr in normalized_transcript for expr in neutral_expressions)
+        is_insulting = any(word in normalized_transcript for word in ["suck", "idiot", "stupid", "hate", "kill"])
+
+        if is_neutral_expression and not is_insulting:
+            print("😅 Expression familière/humoristique détectée dans l'audio - considérée comme conforme")
+            result = {
+                "status": "conforme",
+                "bert": {"label": "safe", "confidence": 1.0},
+                "groq": {"status": "conforme", "reasoning": "Expression familière/humoristique détectée (ex: 'what the fuck') dans un contexte non insultant.", "category": "aucun"},
+                "message": "Expression familière/humoristique détectée : le texte audio est conforme.",
+                "processed_text": normalized_transcript,
+                "violated_rules": [],
+                "conflict_detected": False,
+                "detected_language": language,
+            }
+        else:
+            result = await ModerationService.check_content_comprehensive(
+                text=normalized_transcript,
+                model=model,
+                db=db,
+                user_id=current_user.id,
+                language=language,
+                entry_type="audio"
+            )
+
+        # Mettre à jour la dernière entrée Analyzer pour y ajouter le type 'audio' si besoin
+        try:
+            last_entry = db.query(Analyzer).filter(Analyzer.user_id == current_user.id).order_by(Analyzer.id.desc()).first()
+            if last_entry and last_entry.question == transcript[:1000]:
+                last_entry.type = "audio"
+                db.add(last_entry)
+                db.commit()
+        except Exception as e:
+            print(f"⚠️ Impossible de taguer l'entrée Analyzer comme audio : {e}")
 
         return ContentCheckResponse(**result)
     finally:

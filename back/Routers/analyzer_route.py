@@ -75,7 +75,8 @@ async def check_content(
           text=input_data.text,
           model=input_data.model,
           db=db,
-          user_id=current_user.id
+          user_id=current_user.id,
+          language=getattr(input_data, 'language', 'fr')
       )
 
       return ContentCheckResponse(

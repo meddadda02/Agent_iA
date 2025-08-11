@@ -4,7 +4,8 @@ from typing import List, Optional, Union, Dict, Any
 # Représente le texte à modérer	Entrée de /check_content
 class TextInput(BaseModel):
     text: str
-    model: str = "llama3-8b-8192"
+    model: str = "llama3-70b-8192"
+    language: str = "fr"  # Ajout du champ facultatif pour la langue ("fr", "en", "ar", "dialecte")
 
 # Résultat complet d’une modération	Sortie de /check_content
 class ContentCheckResponse(BaseModel):
@@ -14,9 +15,11 @@ class ContentCheckResponse(BaseModel):
     message: str
     processed_text: str
     violated_rules: List[str]
+    conflict_detected: Optional[bool] = False  # Nouveau champ pour indiquer les conflits
 
 class SupportedModelsResponse(BaseModel):
     models: List[str]
+
 # Afficher une entrée de l’historique	/history
 class ModerationHistoryResponse(BaseModel):
     id: int
