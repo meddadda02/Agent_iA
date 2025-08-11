@@ -1,5 +1,4 @@
-import ContentGuardLanding from "../components/contentguard-landing"
-
+import Home from "../components/Home"
 export default function HomePage() {
-  return <ContentGuardLanding />
+  return <Home />
 }
