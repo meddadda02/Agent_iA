@@ -15,7 +15,15 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 class UserService:
     @staticmethod
-    def create_user(db: Session, username: str, email: str, password: str, confirm_password: str, photo_path: str = None):
+    def create_user(
+        db: Session,
+        username: str,
+        email: str,
+        password: str,
+        confirm_password: str,
+        photo_path: str = None,
+        role: str = "user"   # rôle par défaut ajouté ici
+    ):
         # Vérifier si l'utilisateur existe déjà
         if db.query(User).filter(User.username == username).first():
             raise HTTPException(status_code=400, detail="Username already exists")
@@ -29,13 +37,14 @@ class UserService:
         # Hacher le mot de passe
         hashed_password = pwd_context.hash(password)
         
-        # Créer l'utilisateur
+        # Créer l'utilisateur avec rôle passé ou "user" par défaut
         user = User(
             username=username,
             email=email,
             password_hash=hashed_password,
-            Confirm_password_hash=hashed_password, # Storing the same hash for confirm_password
-            photo=photo_path
+            Confirm_password_hash=hashed_password,
+            photo=photo_path,
+            role=role
         )
         
         db.add(user)
@@ -51,15 +60,25 @@ class UserService:
         return user
     
     @staticmethod
-    def update_user(db: Session, user: User, password: Optional[str] = None, confirm_password: Optional[str] = None, **kwargs):
-        # Handle password update with confirmation
+    def update_user(
+        db: Session,
+        user: User,
+        password: Optional[str] = None,
+        confirm_password: Optional[str] = None,
+        **kwargs
+    ):
+        # Mise à jour du mot de passe si fourni
         if password is not None:
             if confirm_password is None or password != confirm_password:
-                raise HTTPException(status_code=400, detail="Password and confirm password do not match or confirm password is missing.")
-            setattr(user, "password_hash", pwd_context.hash(password))
-            setattr(user, "Confirm_password_hash", pwd_context.hash(password)) # Update confirm_password_hash as well
+                raise HTTPException(
+                    status_code=400,
+                    detail="Password and confirm password do not match or confirm password is missing."
+                )
+            hashed_password = pwd_context.hash(password)
+            setattr(user, "password_hash", hashed_password)
+            setattr(user, "Confirm_password_hash", hashed_password)
         
-        # Handle other updates
+        # Mise à jour des autres champs
         for key, value in kwargs.items():
             if value is not None:
                 setattr(user, key, value)
@@ -68,15 +87,12 @@ class UserService:
         db.refresh(user)
         return user
 
+
 class JWTService:
     @staticmethod
     def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
         to_encode = data.copy()
-        if expires_delta:
-            expire = datetime.utcnow() + expires_delta
-        else:
-            expire = datetime.utcnow() + timedelta(hours=24)  # Token valide 24h
-        
+        expire = datetime.utcnow() + (expires_delta or timedelta(hours=24))
         to_encode.update({"exp": expire})
         encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
         return encoded_jwt
@@ -89,18 +105,16 @@ class JWTService:
         except JWTError:
             return None
 
+
 class FileService:
     @staticmethod
     def save_image(file: UploadFile, directory: str = "uploads") -> str:
         try:
-            # Créer le dossier s'il n'existe pas
             os.makedirs(directory, exist_ok=True)
             
-            # Vérifier le fichier
             if not file.filename or '.' not in file.filename:
                 raise ValueError("Invalid file name")
             
-            # Générer un nom unique
             ext = file.filename.split('.')[-1].lower()
             if ext not in ['jpg', 'jpeg', 'png', 'gif']:
                 raise ValueError("Invalid file type")
@@ -108,7 +122,6 @@ class FileService:
             unique_name = f"{uuid.uuid4()}.{ext}"
             file_path = os.path.join(directory, unique_name)
             
-            # Sauvegarder le fichier
             with open(file_path, "wb") as buffer:
                 shutil.copyfileobj(file.file, buffer)
             

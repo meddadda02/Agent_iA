@@ -1,6 +1,8 @@
 from sqlalchemy import Column, Integer, String, DateTime, Boolean, func, Text
 from config import Base
 from sqlalchemy.orm import relationship
+from Models.analyzer_model import Analyzer
+
 
 class User(Base):
     __tablename__ = 'users'
@@ -11,6 +13,7 @@ class User(Base):
     photo = Column(String, nullable=True)
     password_hash = Column(String, nullable=False)
     Confirm_password_hash = Column(String, nullable=False)
+    role = Column(String, nullable=False, server_default="user")  # 👈 Nouveau champ
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     jwt_token = Column(String, nullable=True)
 

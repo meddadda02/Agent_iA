@@ -13,12 +13,13 @@ class UserUpdate(BaseModel):
     username: Optional[str] = None
     email: Optional[EmailStr] = None
     password: Optional[str] = None
-    confirm_password: Optional[str] = None # Added confirm_password for updates
+    confirm_password: Optional[str] = None
 
 class UserOut(UserBase):
     id: int
     photo: Optional[str] = None
     created_at: Optional[str] = None
+    role: str 
 
     class Config:
         from_attributes = True
