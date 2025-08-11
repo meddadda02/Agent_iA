@@ -1,0 +1,44 @@
+.security-check {
+  width: 100%;
+}
+
+.security-check__title {
+  font-size: 28px;
+  font-weight: 600;
+  color: #ff8c00;
+  margin-bottom: 24px;
+  line-height: 1.3;
+}
+
+.security-check__description {
+  font-size: 16px;
+  color: #666;
+  line-height: 1.6;
+  margin-bottom: 32px;
+  max-width: 400px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.security-check__actions {
+  margin-bottom: 32px;
+}
+
+.security-check__begin-btn {
+  min-width: 120px;
+}
+
+.security-check__language {
+  display: flex;
+  justify-content: center;
+}
+
+@media (max-width: 768px) {
+  .security-check__title {
+    font-size: 24px;
+  }
+
+  .security-check__description {
+    font-size: 14px;
+  }
+}

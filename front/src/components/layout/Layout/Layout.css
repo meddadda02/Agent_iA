@@ -1,0 +1,29 @@
+.layout {
+  min-height: 100vh;
+  background: linear-gradient(135deg, #f8f9fa, #e9ecef);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.layout__container {
+  width: 100%;
+  max-width: 500px;
+  background: white;
+  border-radius: 16px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
+  padding: 40px;
+  text-align: center;
+}
+
+@media (max-width: 768px) {
+  .layout {
+    padding: 10px;
+  }
+
+  .layout__container {
+    padding: 30px 20px;
+    border-radius: 12px;
+  }
+}
