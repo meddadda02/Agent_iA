@@ -8,3 +8,4 @@ __pycache__/
 .env
 venv310/
 .requirements.txt
+node_modules/
