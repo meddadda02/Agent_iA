@@ -6,6 +6,8 @@ npm run dev
 
 
 
---------rss fetcher 
-npm install or npm install node-fetch rss-parser node-cron pg
-node rssFetcher.js
+-------------------for  policies
+cd policy-ingestion-mvp
+pip install httpx selectolax
+python sitemap_crawler.py
+python policy_parser.py

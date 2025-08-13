@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "YouTube Policy Rule",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "title": {
+      "type": "string"
+    },
+    "scope": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "category": {
+      "type": "string"
+    },
+    "prohibits": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "allows_if": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "age_restriction_possible": {
+      "type": "boolean"
+    },
+    "monetization_impact": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "strike_risk": {
+      "type": "string"
+    },
+    "examples_positive": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "examples_negative": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "sources": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "last_seen": {
+      "type": "string"
+    },
+    "lastmod_from_sitemap": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "title",
+    "scope",
+    "sources",
+    "last_seen"
+  ]
+}
