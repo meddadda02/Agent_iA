@@ -6,9 +6,16 @@ from dotenv import load_dotenv
 from typing import Dict, List, Optional
 import re
 import json
+import asyncio
+import time
 from sqlalchemy.orm import Session
 from Models.analyzer_model import Analyzer # Assurez-vous que c'est le bon import pour votre modèle Analyzer
 from spellchecker import SpellChecker # Importation de SpellChecker
+import logging
+
+# Configuration du logger
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 # Chargement des variables d'environnement
 load_dotenv()
@@ -53,6 +60,16 @@ def load_rules():
 # Chargement des règles
 RULES = load_rules()
 
+# Configuration Groq par défaut (sans dépendance au fichier de configuration)
+GROQ_CONFIG = {
+    "max_retries": 3,
+    "base_delay": 1.0,
+    "max_delay": 10.0,
+    "timeout": 15.0,
+    "circuit_breaker_threshold": 5,
+    "circuit_breaker_timeout": 300
+}
+
 # Initialisation du correcteur orthographique pour le français
 try:
   spell = SpellChecker(language='fr')
@@ -81,64 +98,169 @@ except OSError:
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
 
-if GROQ_API_KEY:
-  print("✅ Clé API Groq configurée")
-else:
-  print("⚠️ Clé API Groq non configurée")
+class GroqCircuitBreaker:
+    def __init__(self):
+        self.failure_count = 0
+        self.last_failure_time = 0
+        self.state = "CLOSED"  # CLOSED, OPEN, HALF_OPEN
+    
+    def is_open(self):
+        if self.state == "OPEN":
+            if time.time() - self.last_failure_time > GROQ_CONFIG["circuit_breaker_timeout"]:
+                self.state = "HALF_OPEN"
+                return False
+            return True
+        return False
+    
+    def record_success(self):
+        self.failure_count = 0
+        self.state = "CLOSED"
+    
+    def record_failure(self):
+        self.failure_count += 1
+        self.last_failure_time = time.time()
+        if self.failure_count >= GROQ_CONFIG["circuit_breaker_threshold"]:
+            self.state = "OPEN"
+            print(f"🔴 Circuit breaker OUVERT - trop d'échecs Groq ({self.failure_count})")
+
+groq_circuit_breaker = GroqCircuitBreaker()
 
 class ModerationService:
   @staticmethod
+  def detect_language_and_dialect(text: str) -> Dict[str, str]:
+    """Détecte automatiquement la langue et le dialecte du texte avec une approche intelligente"""
+    text_lower = text.lower().strip()
+    
+    
+    # Analyse des caractères arabes
+    arabic_chars = sum(1 for char in text if '\u0600' <= char <= '\u06FF')
+    latin_chars = sum(1 for char in text if char.isalpha() and not ('\u0600' <= char <= '\u06FF'))
+    total_chars = len([c for c in text if c.isalpha()])
+    
+    if total_chars == 0:
+        return {"language": "fr", "dialect": "standard"}
+    
+    arabic_ratio = arabic_chars / total_chars if total_chars > 0 else 0
+    
+    # Patterns morphologiques darija (approche intelligente)
+    def analyze_darija_patterns(text: str) -> float:
+        """Analyse les patterns morphologiques du darija marocain"""
+        score = 0.0
+        
+        # Patterns de conjugaison darija
+        conjugation_patterns = [
+            r'\bn[a-z]+o\b',      # nqadro, ndiro, nmchiw
+            r'\bkan[a-z]+\b',     # kanqdar, kandir, kanmchi
+            r'\bghan[a-z]+\b',    # ghanqdar, ghandir
+            r'\b[a-z]+ach\b',     # kifach, fuqach, 3lach
+            r'\b[a-z]+ch\b',      # wach, chkoun, chno
+        ]
+        
+        # Suffixes typiques darija
+        darija_suffixes = [
+            r'\b[a-z]+iya\b',     # chwiya, etc.
+            r'\b[a-z]+ouk\b',     # hadouk, etc.
+            r'\b[a-z]+ach\b',     # kifach, etc.
+        ]
+        
+        # Préfixes darija
+        darija_prefixes = [
+            r'\bma[a-z]+ch\b',    # machi, makaynch
+            r'\b3[a-z]+\b',       # 3lach, 3ndi, 3ndak
+            r'\bgh[a-z]+\b',      # ghir, ghandir
+        ]
+        
+        # Bigrammes typiques darija
+        darija_bigrams = [
+            'ki', 'fa', 'ch', 'nq', 'nt', 'lm', 'dj', 'gh', 'ch', 'dy', 'al'
+        ]
+        
+        import re
+        
+        # Score basé sur les patterns de conjugaison
+        for pattern in conjugation_patterns:
+            matches = re.findall(pattern, text_lower)
+            score += len(matches) * 0.3
+        
+        # Score basé sur les suffixes
+        for pattern in darija_suffixes:
+            matches = re.findall(pattern, text_lower)
+            score += len(matches) * 0.2
+        
+        # Score basé sur les préfixes
+        for pattern in darija_prefixes:
+            matches = re.findall(pattern, text_lower)
+            score += len(matches) * 0.25
+        
+        # Analyse des bigrammes
+        bigram_score = 0
+        for i in range(len(text_lower) - 1):
+            bigram = text_lower[i:i+2]
+            if bigram in darija_bigrams:
+                bigram_score += 1
+        
+        score += (bigram_score / len(text_lower)) * 2 if len(text_lower) > 0 else 0
+        
+        # Mots-clés essentiels darija (liste réduite mais critique)
+        essential_darija = [
+            'kifach', 'nqadro', 'nt3lmo', 'lhaja', 'jdida', 'daba', 'bzaf', 
+            'chwiya', 'machi', 'ghir', 'wach', 'chkoun', 'dyal', 'kayn'
+        ]
+        
+        words = text_lower.split()
+        essential_matches = sum(1 for word in words if word in essential_darija)
+        score += essential_matches * 0.5
+        
+        return min(score, 3.0)  # Normaliser le score
+    
+    def analyze_french_patterns(text: str) -> float:
+        """Analyse les patterns français"""
+        french_indicators = ['le', 'la', 'les', 'de', 'du', 'des', 'un', 'une', 'et', 'est', 'dans']
+        words = text_lower.split()
+        return sum(1 for word in words if word in french_indicators) * 0.2
+    
+    def analyze_english_patterns(text: str) -> float:
+        """Analyse les patterns anglais"""
+        english_indicators = ['the', 'and', 'is', 'in', 'to', 'of', 'a', 'that', 'it', 'with']
+        words = text_lower.split()
+        return sum(1 for word in words if word in english_indicators) * 0.2
+    
+    # Calcul des scores intelligents
+    darija_score = analyze_darija_patterns(text_lower)
+    french_score = analyze_french_patterns(text_lower)
+    english_score = analyze_english_patterns(text_lower)
+    
+    logger.info(f"Scores intelligents - Darija: {darija_score:.2f}, Français: {french_score:.2f}, Anglais: {english_score:.2f}, Ratio arabe: {arabic_ratio:.2f}")
+    
+    # Logique de décision intelligente
+    if darija_score >= 1.0 or (arabic_ratio > 0.1 and darija_score >= 0.5):
+        logger.info(f"Darija détecté avec score intelligent: {darija_score:.2f}")
+        return {"language": "ar", "dialect": "maghreb"}
+    
+    elif arabic_ratio > 0.3:
+        return {"language": "ar", "dialect": "standard"}
+    
+    elif french_score > english_score and french_score > 0.5:
+        return {"language": "fr", "dialect": "standard"}
+    
+    elif english_score > french_score and english_score > 0.5:
+        return {"language": "en", "dialect": "standard"}
+    
+    # Analyse contextuelle pour les cas ambigus
+    if 'video' in text_lower or 'vidéo' in text_lower:
+        if darija_score > 0.3:
+            return {"language": "ar", "dialect": "maghreb"}
+        elif any(fr_word in text_lower for fr_word in ['va', 'de', 'rire', 'tuer']):
+            return {"language": "fr", "dialect": "standard"}
+    
+    # Par défaut, utiliser l'analyse contextuelle
+    return {"language": "fr", "dialect": "standard"}
+
+  @staticmethod
   def detect_language(text: str) -> str:
-      """Détecte automatiquement la langue du texte"""
-      text_lower = text.lower().strip()
-      
-      # Mots-clés français courants
-      french_keywords = [
-          'le', 'la', 'les', 'de', 'du', 'des', 'un', 'une', 'et', 'est', 'dans', 'pour', 'avec', 'sur', 'par',
-          'comment', 'pourquoi', 'quand', 'où', 'que', 'qui', 'quoi', 'quel', 'quelle',
-          'bonjour', 'salut', 'merci', 'oui', 'non', 'peut-être', 'temps', 'aujourd\'hui'
-      ]
-      
-      # Mots-clés anglais courants
-      english_keywords = [
-          'the', 'and', 'is', 'in', 'to', 'of', 'a', 'that', 'it', 'with', 'for', 'as', 'was', 'on', 'are',
-          'what', 'how', 'when', 'where', 'why', 'who', 'which',
-          'hello', 'hi', 'thank', 'thanks', 'yes', 'no', 'maybe', 'weather', 'today', 'like'
-      ]
-      
-      # Mots-clés arabes courants
-      arabic_keywords = [
-          'في', 'من', 'إلى', 'على', 'هذا', 'هذه', 'التي', 'الذي', 'كان', 'كانت',
-          'ما', 'كيف', 'متى', 'أين', 'لماذا', 'من', 'أي',
-          'مرحبا', 'شكرا', 'نعم', 'لا', 'ربما'
-      ]
-      
-      words = text_lower.split()
-      
-      french_score = sum(1 for word in words if word in french_keywords)
-      english_score = sum(1 for word in words if word in english_keywords)
-      arabic_score = sum(1 for word in words if word in arabic_keywords)
-      
-      # Détection basée sur les caractères arabes
-      arabic_chars = sum(1 for char in text if '\u0600' <= char <= '\u06FF')
-      if arabic_chars > len(text) * 0.3:  # Plus de 30% de caractères arabes
-          return "ar"
-      
-      # Comparaison des scores
-      if french_score > english_score and french_score > arabic_score:
-          return "fr"
-      elif english_score > french_score and english_score > arabic_score:
-          return "en"
-      elif arabic_score > 0:
-          return "ar"
-      else:
-          # Détection par défaut basée sur des patterns
-          if any(word in text_lower for word in ['what', 'how', 'when', 'where', 'weather', 'like', 'today']):
-              return "en"
-          elif any(word in text_lower for word in ['comment', 'pourquoi', 'quand', 'où', 'temps', 'aujourd\'hui']):
-              return "fr"
-          else:
-              return "fr"  # Par défaut français
+      """Détecte automatiquement la langue du texte (fonction simplifiée pour compatibilité)"""
+      result = ModerationService.detect_language_and_dialect(text)
+      return result["language"]
 
   @staticmethod
   def is_whitelisted(text: str) -> bool:
@@ -193,20 +315,20 @@ class ModerationService:
       """Extrait et parse le JSON de la réponse Groq de manière robuste"""
       print(f"🔍 Réponse brute Groq: {content[:500]}...")
       
-      # Méthode 1: Chercher les blocs JSON avec ```json
-      if "```json" in content:
+      # Méthode 1: Chercher les blocs JSON avec \`\`\`json
+      if "\`\`\`json" in content:
           try:
-              json_part = content.split("```json")[1].split("```")[0].strip()
+              json_part = content.split("\`\`\`json")[1].split("\`\`\`")[0].strip()
               result = json.loads(json_part)
               print("✅ JSON extrait avec succès (méthode 1)")
               return result
           except (IndexError, json.JSONDecodeError) as e:
               print(f"⚠️ Échec méthode 1: {e}")
       
-      # Méthode 2: Chercher les blocs avec ```
-      if "```" in content:
+      # Méthode 2: Chercher les blocs avec \`\`\`
+      if "\`\`\`" in content:
           try:
-              json_part = content.split("```")[1].strip()
+              json_part = content.split("\`\`\`")[1].strip()
               result = json.loads(json_part)
               print("✅ JSON extrait avec succès (méthode 2)")
               return result
@@ -260,7 +382,7 @@ class ModerationService:
       ]
       
       negative_indicators = [
-          "non_conforme", "non-conforme", "non conforme", "toxic", "violation",
+          "non_conforme", "non conforme", "non-conforme", "toxic", "violation",
           "insulte", "insult", "offensive", "inappropriate", "problematic"
       ]
       
@@ -334,8 +456,10 @@ class ModerationService:
               }
 
   @staticmethod
-  async def query_groq_enhanced(text: str, model: str = "llama3-70b-8192", language: str = "fr") -> Dict:
-      """Analyse le contenu via l'API Groq - Méthode principale d'analyse, prompt identique pour audio et texte"""
+  async def query_groq_with_retry(text: str, model: str = "llama3-70b-8192", language: str = "fr") -> Dict:
+      """
+      Analyse le contenu via l'API Groq avec retry automatique et fallback entre modèles
+      """
       if not GROQ_API_KEY:
           return {
               "status": "conforme",
@@ -343,9 +467,67 @@ class ModerationService:
               "reasoning": "API Groq non configurée - analyse impossible",
               "is_insult": False
           }
-      if model not in RULES["groq_models"]:
-          model = "llama3-70b-8192"
       
+      if groq_circuit_breaker.is_open():
+          print("🔴 Circuit breaker ouvert - Groq temporairement désactivé")
+          return {
+              "status": "conforme",
+              "category": "erreur",
+              "reasoning": "Service Groq temporairement indisponible (circuit breaker ouvert)",
+              "is_insult": False
+          }
+      
+      available_models = RULES.get("groq_models", ["llama3-70b-8192", "llama3-8b-8192", "mixtral-8x7b-32768"])
+      models_to_try = [model] + [m for m in available_models if m != model]
+      
+      for model_attempt in models_to_try:
+          print(f"🔄 Tentative avec le modèle: {model_attempt}")
+          
+          max_retries = GROQ_CONFIG["max_retries"]
+          for attempt in range(max_retries):
+              try:
+                  result = await ModerationService._single_groq_request(text, model_attempt, language, attempt + 1)
+                  
+                  if result["category"] != "erreur":
+                      groq_circuit_breaker.record_success()
+                      return result
+                  
+                  # Si c'est une erreur 503/502/504, on retry
+                  if "503" in result["reasoning"] or "502" in result["reasoning"] or "504" in result["reasoning"]:
+                      if attempt < max_retries - 1:
+                          base_delay = GROQ_CONFIG["base_delay"]
+                          max_delay = GROQ_CONFIG["max_delay"]
+                          delay = min(base_delay * (2 ** attempt), max_delay)
+                          print(f"⏳ Retry dans {delay}s (tentative {attempt + 1}/{max_retries})")
+                          await asyncio.sleep(delay)
+                          continue
+                  
+                  # Pour les autres erreurs, passer au modèle suivant
+                  break
+                  
+              except Exception as e:
+                  print(f"❌ Erreur lors de la tentative {attempt + 1} avec {model_attempt}: {e}")
+                  if attempt < max_retries - 1:
+                      base_delay = GROQ_CONFIG["base_delay"]
+                      max_delay = GROQ_CONFIG["max_delay"]
+                      delay = min(base_delay * (2 ** attempt), max_delay)
+                      await asyncio.sleep(delay)
+                  else:
+                      break
+      
+      groq_circuit_breaker.record_failure()
+      print("❌ Tous les modèles Groq ont échoué - utilisation du fallback intelligent")
+      
+      return ModerationService.smart_fallback_analysis(
+          f"Échec de tous les modèles Groq après {GROQ_CONFIG['max_retries']} tentatives", 
+          text
+      )
+
+  @staticmethod
+  async def _single_groq_request(text: str, model: str, language: str, attempt_num: int) -> Dict:
+      """
+      Effectue une seule requête vers l'API Groq
+      """
       categories_list = [f"- {cat}: {desc}" for cat, desc in RULES["moderation_categories"].items()]
       categories_text = "\n".join(categories_list)
       
@@ -434,52 +616,60 @@ IMPORTANT: Réponds UNIQUEMENT avec un JSON valide, sans texte supplémentaire a
           "temperature": 0.1
       }
       
-      try:
-          async with httpx.AsyncClient(timeout=30.0) as client:
-              response = await client.post(GROQ_API_URL, headers=headers, json=json_data)
+      print(f"🔄 Requête Groq (tentative {attempt_num}) - Modèle: {model}")
+      
+      timeout = GROQ_CONFIG["timeout"]
+      async with httpx.AsyncClient(timeout=timeout) as client:
+          response = await client.post(GROQ_API_URL, headers=headers, json=json_data)
+          
+          if response.status_code != 200:
+              error_msg = f"Erreur API Groq: {response.status_code}"
+              if response.status_code in [503, 502, 504]:
+                  error_msg += " (Service temporairement indisponible)"
+              elif response.status_code == 429:
+                  error_msg += " (Limite de taux dépassée)"
+              elif response.status_code == 401:
+                  error_msg += " (Clé API invalide)"
               
-              if response.status_code != 200:
-                  print(f"Erreur API Groq: {response.status_code} - {response.text}")
-                  return {
-                      "status": "conforme",
-                      "category": "erreur",
-                      "reasoning": f"Erreur API Groq: {response.status_code}",
-                      "is_insult": False
-                  }
-              
-              data = response.json()
-              content = data.get("choices", [{}])[0].get("message", {}).get("content", "").strip()
-              
-              # Extraction robuste du JSON
-              result = ModerationService.extract_json_from_response(content)
-              
-              if result:
-                  # Validation des champs requis
-                  if not all(key in result for key in ["status", "category", "reasoning"]):
-                      print("⚠️ Champs manquants dans la réponse JSON")
-                      return ModerationService.smart_fallback_analysis(content, text)
-                  
-                  # Normalisation du statut
-                  if result["status"].lower() in ["non_conforme", "non conforme", "non-conforme"]:
-                      result["status"] = "non_conforme"
-                  elif result["status"].lower() == "conforme":
-                      result["status"] = "conforme"
-                  
-                  print(f"✅ Analyse Groq réussie: {result['status']}")
-                  return result
-              else:
-                  # Fallback intelligent
-                  print("🔄 Utilisation du fallback intelligent")
+              print(f"❌ {error_msg} - {response.text[:200]}")
+              return {
+                  "status": "conforme",
+                  "category": "erreur",
+                  "reasoning": error_msg,
+                  "is_insult": False
+              }
+          
+          data = response.json()
+          content = data.get("choices", [{}])[0].get("message", {}).get("content", "").strip()
+          
+          # Extraction robuste du JSON
+          result = ModerationService.extract_json_from_response(content)
+          
+          if result:
+              # Validation des champs requis
+              if not all(key in result for key in ["status", "category", "reasoning"]):
+                  print("⚠️ Champs manquants dans la réponse JSON")
                   return ModerationService.smart_fallback_analysis(content, text)
+              
+              # Normalisation du statut
+              if result["status"].lower() in ["non_conforme", "non conforme", "non-conforme"]:
+                  result["status"] = "non_conforme"
+              elif result["status"].lower() == "conforme":
+                  result["status"] = "conforme"
+              
+              print(f"✅ Analyse Groq réussie (modèle: {model}): {result['status']}")
+              return result
+          else:
+              # Fallback intelligent
+              print("🔄 Utilisation du fallback intelligent")
+              return ModerationService.smart_fallback_analysis(content, text)
 
-      except Exception as e:
-          print(f"Erreur Groq: {e}")
-          return {
-              "status": "conforme",
-              "category": "erreur",
-              "reasoning": f"Erreur technique lors de l'analyse Groq: {str(e)}",
-              "is_insult": False
-          }
+  @staticmethod
+  async def query_groq_enhanced(text: str, model: str = "llama3-70b-8192", language: str = "fr") -> Dict:
+      """
+      Point d'entrée principal pour l'analyse Groq - utilise maintenant le système de retry
+      """
+      return await ModerationService.query_groq_with_retry(text, model, language)
 
   @staticmethod
   def correct_spelling(text: str, language: str = "fr") -> str:
@@ -492,7 +682,7 @@ IMPORTANT: Réponds UNIQUEMENT avec un JSON valide, sans texte supplémentaire a
       custom_word_corrections = {
           "beu": "beau",
           "policie": "police",
-          "tuees": "tuer", 
+          "tuees": "tuer",
           "paye": "pays",
           "pute": "pute"
       }
@@ -518,12 +708,14 @@ IMPORTANT: Réponds UNIQUEMENT avec un JSON valide, sans texte supplémentaire a
     if len(text) > RULES["limits"]["max_text_length"]:
         raise ValueError(f"Le texte est trop long (max {RULES['limits']['max_text_length']} caractères).")
     
-    # Détection automatique de la langue si nécessaire
-    if language == "auto" or language == "":
-        detected_language = ModerationService.detect_language(text)
-        print(f"🔍 Langue détectée automatiquement: {detected_language}")
+    if language == "auto" or language == "" or language is None:
+        lang_detection = ModerationService.detect_language_and_dialect(text)
+        detected_language = lang_detection["language"]
+        detected_dialect = lang_detection["dialect"]
+        print(f"🔍 Langue détectée automatiquement: {detected_language} (dialecte: {detected_dialect})")
     else:
         detected_language = language
+        detected_dialect = "standard"
         print(f"🔍 Langue spécifiée: {detected_language}")
     
     # Normalisation stricte pour garantir la cohérence texte/audio
@@ -568,6 +760,7 @@ IMPORTANT: Réponds UNIQUEMENT avec un JSON valide, sans texte supplémentaire a
             "violated_rules": [],
             "conflict_detected": False,
             "detected_language": detected_language,
+            "detected_dialect": detected_dialect,  # Ajout du dialecte détecté
         }
     
     # ANALYSE BERT (selon la langue)
@@ -584,7 +777,6 @@ IMPORTANT: Réponds UNIQUEMENT avec un JSON valide, sans texte supplémentaire a
             print(f"⚠️ Erreur lors de l'analyse BERT: {e}")
     
 
-    # ANALYSE PRINCIPALE AVEC GROQ (avec la langue détectée)
     groq_result = await ModerationService.query_groq_enhanced(corrected_text, model, language=detected_language)
 
     # Logique spéciale : expressions familières/humoristiques
@@ -617,7 +809,7 @@ IMPORTANT: Réponds UNIQUEMENT avec un JSON valide, sans texte supplémentaire a
         if bert_says_toxic and not groq_says_toxic:
             conflict_detected = True
             print(f"⚠️ CONFLIT DÉTECTÉ: BERT={bert_label} vs GROQ={groq_result['status']}")
-            print(f"📝 Texte analysé: '{text}' (langue: {detected_language})")
+            print(f"📝 Texte analysé: '{text}' (langue: {detected_language}, dialecte: {detected_dialect})")
 
             # Logique de résolution : privilégier Groq si BERT a une faible confiance
             if bert_confidence < 0.7:  # Seuil de confiance faible
@@ -653,8 +845,15 @@ IMPORTANT: Réponds UNIQUEMENT avec un JSON valide, sans texte supplémentaire a
         violated_rules = [groq_result["category"]] if final_status == "non_conforme" and groq_result["category"] != "aucun" else []
 
         if groq_result["category"] == "erreur":
-            final_status = "conforme"
-            final_message = f"Erreur lors de l'analyse Groq: {groq_result['reasoning']}. Statut par défaut 'conforme'."
+            if "circuit breaker" in groq_result["reasoning"].lower():
+                final_status = "conforme"
+                final_message = f"Service de modération temporairement indisponible. Statut par défaut 'conforme'. ({groq_result['reasoning']})"
+            elif "503" in groq_result["reasoning"] or "502" in groq_result["reasoning"] or "504" in groq_result["reasoning"]:
+                final_status = "conforme"
+                final_message = f"Erreur lors de l'analyse Groq: {groq_result['reasoning']}. Statut par défaut 'conforme'."
+            else:
+                final_status = "conforme"
+                final_message = f"Erreur lors de l'analyse: {groq_result['reasoning']}. Statut par défaut 'conforme'."
             violated_rules = []
     
     # Sauvegarde en base
@@ -671,7 +870,7 @@ IMPORTANT: Réponds UNIQUEMENT avec un JSON valide, sans texte supplémentaire a
         analyzer_entry = Analyzer(**analyzer_kwargs)
         db.add(analyzer_entry)
         db.commit()
-        print(f"✅ Analyse sauvegardée en base de données (type={entry_type}, status={final_status}, langue={detected_language})")
+        print(f"✅ Analyse sauvegardée en base de données (type={entry_type}, status={final_status}, langue={detected_language}, dialecte={detected_dialect})")
     except Exception as e:
         print(f"⚠️ Erreur lors de la sauvegarde: {e}")
         db.rollback()
@@ -685,6 +884,7 @@ IMPORTANT: Réponds UNIQUEMENT avec un JSON valide, sans texte supplémentaire a
         "violated_rules": list(set(violated_rules)),
         "conflict_detected": conflict_detected,
         "detected_language": detected_language,
+        "detected_dialect": detected_dialect,  # Ajout du dialecte dans la réponse
     }
 
   @staticmethod
@@ -863,5 +1063,10 @@ Réponds UNIQUEMENT avec un JSON valide, sans texte supplémentaire:
               "groq": GROQ_API_KEY is not None,
               "database": "connected",
               "spellchecker": spell is not None
+          },
+          "groq_circuit_breaker": {
+              "state": groq_circuit_breaker.state,
+              "failure_count": groq_circuit_breaker.failure_count,
+              "last_failure": groq_circuit_breaker.last_failure_time
           }
       }

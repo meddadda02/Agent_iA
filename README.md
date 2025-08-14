@@ -4,8 +4,10 @@ npm install --legacy-peer-deps
 apres 
 npm run dev
 
-
-
+# create admin
+cd back
+python create_admin.py
+# flux rss
 -------------------for  policies
 cd policy-ingestion-mvp
 pip install httpx selectolax
@@ -27,3 +29,19 @@ ADD COLUMN examples_positive TEXT[] DEFAULT '{}',
 ADD COLUMN examples_negative TEXT[] DEFAULT '{}',
 ADD COLUMN keywords TEXT;
 
+option2
+CREATE TABLE rules (
+    id SERIAL PRIMARY KEY,
+    title TEXT,
+    link TEXT,
+    content TEXT,
+    published_at TIMESTAMP,
+    source TEXT,
+    hash TEXT UNIQUE,
+    scope TEXT[] DEFAULT '{}',
+    prohibits TEXT[] DEFAULT '{}',
+    allows_if TEXT[] DEFAULT '{}',
+    examples_positive TEXT[] DEFAULT '{}',
+    examples_negative TEXT[] DEFAULT '{}',
+    keywords TEXT
+);

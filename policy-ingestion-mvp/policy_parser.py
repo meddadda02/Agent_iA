@@ -4,12 +4,16 @@ from datetime import datetime
 import hashlib
 import psycopg2
 from sitemap_crawler import get_catalog
+import os
+from dotenv import load_dotenv
 
+# Charger les variables d'environnement
+load_dotenv()
 # === DB connection ===
 conn = psycopg2.connect(
-    dbname="agent_ai",   # change if needed
+    dbname=os.getenv("dbname"),   # nom database depuis .env
     user="postgres",
-    password="salma",
+    password=os.getenv("password"), #password database from .env 
     host="localhost",
     port=5432
 )

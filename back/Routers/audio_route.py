@@ -16,8 +16,6 @@ router = APIRouter(tags=["Audio Moderation"])
 async def moderate_audio_file(
     file: UploadFile = File(...),
     model: str = "llama3-70b-8192",
-    langue: str = "",
-
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -53,10 +51,6 @@ async def moderate_audio_file(
                 normalized_transcript = normalized_transcript[:-1]
             normalized_transcript = normalized_transcript.strip()
 
-        # Utiliser la langue détectée ou choisie (paramètre 'langue')
-        language = langue if langue else "fr"
-        # Enregistrer la transcription dans l'historique comme question (pour cohérence avec l'analyse texte)
-
         # Ajout logique expressions familières/humoristiques
         neutral_expressions = [
             "what the fuck", "wtf", "oh fuck", "fuck it", "what the hell", "damn", "shit", "no way"
@@ -74,7 +68,6 @@ async def moderate_audio_file(
                 "processed_text": normalized_transcript,
                 "violated_rules": [],
                 "conflict_detected": False,
-                "detected_language": language,
             }
         else:
             result = await ModerationService.check_content_comprehensive(
@@ -82,7 +75,6 @@ async def moderate_audio_file(
                 model=model,
                 db=db,
                 user_id=current_user.id,
-                language=language,
                 entry_type="audio"
             )
 

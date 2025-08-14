@@ -5,7 +5,6 @@ from typing import List, Optional, Union, Dict, Any
 class TextInput(BaseModel):
     text: str
     model: str = "llama3-70b-8192"
-    language: str = "fr"  # Ajout du champ facultatif pour la langue ("fr", "en", "ar", "dialecte")
 
 # Résultat complet d’une modération	Sortie de /check_content
 class ContentCheckResponse(BaseModel):
