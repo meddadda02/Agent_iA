@@ -11,6 +11,7 @@ import time
 from sqlalchemy.orm import Session
 from Models.analyzer_model import Analyzer # Assurez-vous que c'est le bon import pour votre modèle Analyzer
 from spellchecker import SpellChecker # Importation de SpellChecker
+from Services.rules_service import get_rules_for_scope
 import logging
 
 # Configuration du logger
@@ -20,45 +21,7 @@ logger = logging.getLogger(__name__)
 # Chargement des variables d'environnement
 load_dotenv()
 
-# Règles par défaut si le fichier JSON n'existe pas
-DEFAULT_RULES = {
-  "whitelist_expressions": [
-      "test de modération", 
-      "exemple de texte", 
-      "démonstration"
-  ],
-  "moderation_categories": {
-      "insultes": "Détecte les insultes directes ou indirectes, même subtiles, utilisant des animaux/objets pour rabaisser, ou toute forme de langage dégradant.",
-      "harcèlement": "Détecte le harcèlement et les menaces",
-      "discours_haineux": "Détecte les discours de haine basés sur la race, religion, etc.",
-      "contenu_sexuel": "Détecte le contenu sexuel explicite",
-      "violence": "Détecte les menaces de violence et contenus violents",
-      "contenu_dangereux": "Détecte les contenus dangereux ou illégaux"
-  },
-  "bert_toxic_labels": ["TOXIC", "toxic"],
-  "groq_models": ["llama3-8b-8192", "llama3-70b-8192", "mixtral-8x7b-32768"],
-  "limits": {
-      "max_text_length": 5000
-  },
-  "fallback_keywords": ["insulte", "offense", "non_conforme", "non conforme", "violation", "inapproprié", "toxique", "harcèlement", "menace", "agressif"]
-}
 
-# Chargement des règles depuis le fichier JSON
-def load_rules():
-  try:
-      with open('rules.json', 'r', encoding='utf-8') as f:
-          loaded_rules = json.load(f)
-          print(f"✅ Fichier rules.json chargé avec succès.")
-          return loaded_rules
-  except FileNotFoundError:
-      print("Fichier rules.json non trouvé, utilisation des règles par défaut")
-      return DEFAULT_RULES
-  except json.JSONDecodeError:
-      print("Erreur de format dans rules.json, utilisation des règles par défaut")
-      return DEFAULT_RULES
-
-# Chargement des règles
-RULES = load_rules()
 
 # Configuration Groq par défaut (sans dépendance au fichier de configuration)
 GROQ_CONFIG = {
@@ -97,6 +60,30 @@ except OSError:
 # Configuration API Groq
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
+
+# Always fetch fresh rules from DB
+def fetch_db_rules(scope: str = "texte"):
+    db_rules = get_rules_for_scope(scope)
+    categories = {}
+    whitelist = []
+    fallback_keywords = []
+    for r in db_rules:
+        categories[r.get("title", "")] = r.get("content", "")
+        if r.get("keywords"):
+            fallback_keywords.extend(r["keywords"])
+        if r.get("allows_if"):
+            whitelist.append(r["allows_if"])
+    return {
+        "whitelist_expressions": whitelist,
+        "moderation_categories": categories,
+        "bert_toxic_labels": ["TOXIC", "toxic"],
+        "groq_models": ["llama3-8b-8192", "llama3-70b-8192", "mixtral-8x7b-32768"],
+        "limits": {"max_text_length": 5000},
+        "fallback_keywords": fallback_keywords
+    }
+# Load initial moderation rules from DB
+rules = fetch_db_rules()
+
 
 class GroqCircuitBreaker:
     def __init__(self):
@@ -263,22 +250,25 @@ class ModerationService:
       return result["language"]
 
   @staticmethod
-  def is_whitelisted(text: str) -> bool:
-      """Vérifie si le texte contient une expression whitelistée"""
+
+  def is_whitelisted(text: str, rules: Dict = None) -> bool:
+      if rules is None:
+          rules = fetch_db_rules()
       text_lower = text.lower()
-      for expr in RULES["whitelist_expressions"]:
+      for expr in rules["whitelist_expressions"]:
           if expr in text_lower:
               return True
       return False
 
+
   @staticmethod
-  def detect_dynamic_keywords(text: str, category: str) -> Dict:
+  def detect_dynamic_keywords(text: str, category: str, rules: Dict) -> Dict:
       """Détecte les mots-clés sensibles basés sur les règles dynamiques"""
       text_lower = text.lower()
       found_keywords = []
       
       # Récupération de la règle pour cette catégorie
-      rule_description = RULES["moderation_categories"].get(category, "")
+      rule_description = rules["moderation_categories"].get(category, "")
       
       # Extraction des mots entre guillemets simples
       keywords = re.findall(r"'([^']*)'", rule_description)
@@ -293,12 +283,12 @@ class ModerationService:
       }
 
   @staticmethod
-  def check_all_dynamic_rules(text: str) -> Dict:
+  def check_all_dynamic_rules(text: str, rules: Dict) -> Dict:
       """Vérifie toutes les règles dynamiques automatiquement"""
       all_violations = {}
       
       # Parcourir toutes les catégories de modération
-      for category in RULES["moderation_categories"].keys():
+      for category in rules["moderation_categories"].keys():
           # Ignorer les catégories qui ont des fonctions spéciales
           if category in ["insultes", "harcèlement", "discours_haineux", "contenu_sexuel", "violence", "contenu_dangereux"]:
               continue
@@ -477,7 +467,7 @@ class ModerationService:
               "is_insult": False
           }
       
-      available_models = RULES.get("groq_models", ["llama3-70b-8192", "llama3-8b-8192", "mixtral-8x7b-32768"])
+      available_models = rules.get("groq_models", ["llama3-70b-8192", "llama3-8b-8192", "mixtral-8x7b-32768"])
       models_to_try = [model] + [m for m in available_models if m != model]
       
       for model_attempt in models_to_try:
@@ -528,7 +518,7 @@ class ModerationService:
       """
       Effectue une seule requête vers l'API Groq
       """
-      categories_list = [f"- {cat}: {desc}" for cat, desc in RULES["moderation_categories"].items()]
+      categories_list = [f"- {cat}: {desc}" for cat, desc in rules["moderation_categories"].items()]
       categories_text = "\n".join(categories_list)
       
       # Configuration des prompts selon la langue détectée
@@ -705,8 +695,8 @@ IMPORTANT: Réponds UNIQUEMENT avec un JSON valide, sans texte supplémentaire a
     """Analyse complète du contenu utilisant principalement Groq, support multilingue avec résolution de conflits"""
     if not text or text.strip() == "":
         raise ValueError("Le texte ne peut pas être vide.")
-    if len(text) > RULES["limits"]["max_text_length"]:
-        raise ValueError(f"Le texte est trop long (max {RULES['limits']['max_text_length']} caractères).")
+    if len(text) > rules["limits"]["max_text_length"]:
+        raise ValueError(f"Le texte est trop long (max {rules['limits']['max_text_length']} caractères).")
     
     if language == "auto" or language == "" or language is None:
         lang_detection = ModerationService.detect_language_and_dialect(text)
@@ -803,7 +793,7 @@ IMPORTANT: Réponds UNIQUEMENT avec un JSON valide, sans texte supplémentaire a
         conflict_detected = False
 
         # Détecter les conflits
-        bert_says_toxic = bert_label in RULES.get("bert_toxic_labels", ["toxic"])
+        bert_says_toxic = bert_label in rules.get("bert_toxic_labels", ["toxic"])
         groq_says_toxic = groq_result["status"] == "non_conforme"
 
         if bert_says_toxic and not groq_says_toxic:
@@ -1045,12 +1035,12 @@ Réponds UNIQUEMENT avec un JSON valide, sans texte supplémentaire:
   @staticmethod
   def get_rules():
       """Retourne les règles de modération"""
-      return RULES
+      return rules
 
   @staticmethod
   def get_available_models():
       """Retourne les modèles disponibles"""
-      return {"models": RULES["groq_models"]}
+      return {"models": rules["groq_models"]}
 
   @staticmethod
   def get_health_status():

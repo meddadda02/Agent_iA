@@ -1,11 +1,10 @@
 from fastapi import APIRouter, UploadFile, File, HTTPException, Depends, status
 from sqlalchemy.orm import Session
 from typing import List
-import os, json, shutil, uuid
+import os, json, shutil
 from datetime import datetime
 
-from Services.video_service import analyze_video
-from Services.llm_service import check_youtube_compatibility
+from Services.video_service import analyze_video_full
 from dependencies import get_current_user
 from config import get_db
 from Models.user_model import User
@@ -17,54 +16,70 @@ router = APIRouter(prefix="/video/moderation", tags=["Video Moderation"])
 @router.post("/analyze")
 async def analyze_video_route(
     file: UploadFile = File(...),
+    model: str = "llama3-70b-8192",
+    langue: str = "",  # "", "fr", "en", "ar", "auto"
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Analyse une vidéo, enregistre le rapport et renvoie la compatibilité YouTube"""
-    if not file.content_type.startswith("video/"):
+    """Analyze video: frames (YOLO), audio (Whisper→moderation), subtitles (ffmpeg→moderation)."""
+    if not file.content_type or not file.content_type.startswith("video/"):
         raise HTTPException(status_code=400, detail="Le fichier doit être une vidéo.")
 
-    # Sauvegarde locale
+    # Persist upload to disk (temp)
+    os.makedirs("uploads", exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
     filename = f"{timestamp}_{file.filename}"
-    os.makedirs("uploads", exist_ok=True)
     path = os.path.join("uploads", filename)
+
     with open(path, "wb") as buf:
         shutil.copyfileobj(file.file, buf)
 
-    # Analyse vidéo + rapport détaillé
-    video_report = analyze_video(path)
-    # Génère une phrase de compatibilité à partir du rapport
-    compatibility_phrase = check_youtube_compatibility(video_report)
+    try:
+        # Full multimodal analysis
+        report = await analyze_video_full(
+            video_path=path,
+            db=db,
+            user_id=current_user.id,
+            model=model,
+            interval_ms=200,
+            language_hint=langue
+        )
 
-    # Stockage en base
-    record = Analyzer(
-        user_id=current_user.id,
-        question=filename,             # on stocke le nom du fichier comme "question"
-        response=json.dumps(video_report),
-        toxic=False,
-        type="video"
-    )
-    db.add(record)
-    db.commit()
-    db.refresh(record)
+        # Toxicity from text moderation (visual can be integrated in the future rule mapping)
+        is_toxic = bool(report.get("summary", {}).get("toxic"))
 
-    # Cleanup du fichier uploadé
-    os.remove(path)
+        # Store in DB (Analyzer.response = JSON string)
+        record = Analyzer(
+            user_id=current_user.id,
+            question=filename,                       # keep filename as "question"
+            response=json.dumps(report, ensure_ascii=False),
+            toxic=is_toxic,
+            type="video"
+        )
+        db.add(record)
+        db.commit()
+        db.refresh(record)
 
-    return {
-        "youtube_compatibility": compatibility_phrase,
-        "analysis_id": record.id,
-        "date": record.date.isoformat() if record.date else None,
-        "filename": filename
-    }
+        return {
+            "analysis_id": record.id,
+            "date": record.date.isoformat() if record.date else None,
+            "filename": filename,
+            "youtube_compatibility": None,  # kept for backward compat; you can compute from report if desired
+            "report": report
+        }
+    finally:
+        # Cleanup
+        try:
+            os.remove(path)
+        except Exception:
+            pass
+
 
 @router.get("/history", response_model=List[ModerationHistoryResponse])
 async def get_video_history(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Retourne l’historique des analyses vidéo de l’utilisateur"""
     analyses = (
         db.query(Analyzer)
           .filter(Analyzer.user_id == current_user.id, Analyzer.type == "video")
@@ -82,6 +97,7 @@ async def get_video_history(
         for a in analyses
     ]
 
+
 @router.patch("/history/{analysis_id}", response_model=ModerationHistoryResponse)
 async def update_video_analysis(
     analysis_id: int,
@@ -89,7 +105,6 @@ async def update_video_analysis(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Met à jour le champ question (filename) d’une analyse vidéo existante"""
     analysis = (
         db.query(Analyzer)
           .filter(
@@ -112,13 +127,13 @@ async def update_video_analysis(
         date=analysis.date.isoformat() if analysis.date else None
     )
 
+
 @router.delete("/history/{analysis_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_video_analysis(
     analysis_id: int,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Supprime une analyse vidéo de l’historique"""
     analysis = (
         db.query(Analyzer)
           .filter(
