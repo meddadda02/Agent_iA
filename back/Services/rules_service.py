@@ -1,11 +1,13 @@
 # back/Services/rules_service.py
 import psycopg2
 import os
+from dotenv import load_dotenv
+load_dotenv()
 
 DB_CONFIG = {
-    "dbname": os.getenv("DB_NAME", "agent_ai"),
-    "user": os.getenv("DB_USER", "postgres"),
-    "password": os.getenv("DB_PASS", "salma"),
+    "dbname": os.getenv("dbname"),
+    "user": os.getenv("dbuser"),
+    "password": os.getenv("dbpassword"),
     "host": os.getenv("DB_HOST", "localhost"),
     "port": int(os.getenv("DB_PORT", 5432))
 }

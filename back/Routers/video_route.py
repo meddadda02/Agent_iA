@@ -5,6 +5,7 @@ import os, json, shutil
 from datetime import datetime
 
 from Services.video_service import analyze_video_full
+from Services.copyright_service import CopyrightService
 from dependencies import get_current_user
 from config import get_db
 from Models.user_model import User
@@ -34,8 +35,50 @@ async def analyze_video_route(
     with open(path, "wb") as buf:
         shutil.copyfileobj(file.file, buf)
 
+    copyright_service = CopyrightService()
+
     try:
-        # Full multimodal analysis
+        print("🔍 Vérification du copyright vidéo style YouTube avec ACRCloud...")
+        youtube_copyright_result = await copyright_service.youtube_style_copyright_check(
+            path, "video", current_user.id
+        )
+        
+        if not youtube_copyright_result.get("can_publish", True):
+            record = Analyzer(
+                user_id=current_user.id,
+                question=filename,
+                response=json.dumps({
+                    "status": "blocked_copyright",
+                    "copyright_analysis": youtube_copyright_result,
+                    "youtube_report": copyright_service.generate_youtube_style_report(youtube_copyright_result),
+                    "message": "Publication bloquée pour violation de droits d'auteur"
+                }, ensure_ascii=False),
+                toxic=False,
+                type="video"
+            )
+            db.add(record)
+            db.commit()
+            db.refresh(record)
+            
+            return {
+                "analysis_id": record.id,
+                "date": record.date.isoformat() if record.date else None,
+                "filename": filename,
+                "status": "blocked_copyright",
+                "youtube_compatibility": False,
+                "copyright_warning": {
+                    "message": youtube_copyright_result.get("youtube_style_response", ""),
+                    "action": youtube_copyright_result.get("automatic_action", "block"),
+                    "can_publish": False,
+                    "user_options": youtube_copyright_result.get("user_options", [])
+                },
+                "report": {
+                    "summary": {"blocked": True, "reason": "copyright_violation"},
+                    "copyright_analysis": youtube_copyright_result,
+                    "youtube_report": copyright_service.generate_youtube_style_report(youtube_copyright_result)
+                }
+            }
+        
         report = await analyze_video_full(
             video_path=path,
             db=db,
@@ -45,10 +88,19 @@ async def analyze_video_route(
             language_hint=langue
         )
 
-        # Toxicity from text moderation (visual can be integrated in the future rule mapping)
+        report["copyright_analysis"] = youtube_copyright_result
+        report["youtube_report"] = copyright_service.generate_youtube_style_report(youtube_copyright_result)
+        report["automatic_action"] = youtube_copyright_result.get("automatic_action", "allow")
+        report["can_publish"] = youtube_copyright_result.get("can_publish", True)
+
         is_toxic = bool(report.get("summary", {}).get("toxic"))
 
-        # Store in DB (Analyzer.response = JSON string)
+        copyright_detected = youtube_copyright_result.get("copyright_detected", False)
+        if copyright_detected:
+            report["summary"]["copyright_violation"] = True
+            report["summary"]["copyright_risk"] = youtube_copyright_result.get("legal_risk", "unknown")
+            report["summary"]["youtube_action"] = youtube_copyright_result.get("automatic_action", "unknown")
+
         record = Analyzer(
             user_id=current_user.id,
             question=filename,                       # keep filename as "question"
@@ -60,13 +112,33 @@ async def analyze_video_route(
         db.commit()
         db.refresh(record)
 
-        return {
+        response_data = {
             "analysis_id": record.id,
             "date": record.date.isoformat() if record.date else None,
             "filename": filename,
-            "youtube_compatibility": None,  # kept for backward compat; you can compute from report if desired
+            "youtube_compatibility": youtube_copyright_result.get("can_publish", True),
+            "automatic_action": youtube_copyright_result.get("automatic_action", "allow"),
             "report": report
         }
+        
+        if copyright_detected:
+            action = youtube_copyright_result.get("automatic_action", "warn")
+            if action == "mute_audio":
+                response_data["copyright_warning"] = {
+                    "message": "🔇 AUDIO MODIFIÉ: Des segments audio seront automatiquement coupés en raison de droits d'auteur",
+                    "action": action,
+                    "affected_segments": "Détection en cours...",
+                    "user_options": youtube_copyright_result.get("user_options", [])
+                }
+            elif action == "warn":
+                response_data["copyright_warning"] = {
+                    "message": "⚠️ CONTENU SIGNALÉ: Votre vidéo sera surveillée pour d'éventuelles réclamations",
+                    "action": action,
+                    "risk_level": youtube_copyright_result.get("legal_risk", "medium"),
+                    "user_options": youtube_copyright_result.get("user_options", [])
+                }
+
+        return response_data
     finally:
         # Cleanup
         try:

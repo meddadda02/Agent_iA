@@ -45,3 +45,11 @@ CREATE TABLE rules (
     examples_negative TEXT[] DEFAULT '{}',
     keywords TEXT
 );
+
+# ACRCloud
+- create account free trial 15j
+- create project 
+- recup ca :
+ACRCLOUD_ACCESS_KEY
+ACRCLOUD_ACCESS_SECRET
+ACRCLOUD_HOST

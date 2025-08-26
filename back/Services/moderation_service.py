@@ -3,16 +3,18 @@ import spacy
 import httpx
 import os
 from dotenv import load_dotenv
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Any
 import re
 import json
+import unicodedata
 import asyncio
 import time
 from sqlalchemy.orm import Session
 from Models.analyzer_model import Analyzer # Assurez-vous que c'est le bon import pour votre modèle Analyzer
 from spellchecker import SpellChecker # Importation de SpellChecker
-from Services.rules_service import get_rules_for_scope
 import logging
+
+from Services.copyright_service import CopyrightService
 
 # Configuration du logger
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -21,7 +23,45 @@ logger = logging.getLogger(__name__)
 # Chargement des variables d'environnement
 load_dotenv()
 
+# Règles par défaut si le fichier JSON n'existe pas
+DEFAULT_RULES = {
+  "whitelist_expressions": [
+      "test de modération", 
+      "exemple de texte", 
+      "démonstration"
+  ],
+  "moderation_categories": {
+      "insultes": "Détecte les insultes directes ou indirectes, même subtiles, utilisant des animaux/objets pour rabaisser, ou toute forme de langage dégradant.",
+      "harcèlement": "Détecte le harcèlement et les menaces",
+      "discours_haineux": "Détecte les discours de haine basés sur la race, religion, etc.",
+      "contenu_sexuel": "Détecte le contenu sexuel explicite",
+      "violence": "Détecte les menaces de violence et contenus violents",
+      "contenu_dangereux": "Détecte les contenus dangereux ou illégaux"
+  },
+  "bert_toxic_labels": ["TOXIC", "toxic"],
+  "groq_models": ["llama3-8b-8192", "llama3-70b-8192", "mixtral-8x7b-32768"],
+  "limits": {
+      "max_text_length": 5000
+  },
+  "fallback_keywords": ["insulte", "offense", "non_conforme", "non conforme", "violation", "inapproprié", "toxique", "harcèlement", "menace", "agressif"]
+}
 
+# Chargement des règles depuis le fichier JSON
+def load_rules():
+  try:
+      with open('rules.json', 'r', encoding='utf-8') as f:
+          loaded_rules = json.load(f)
+          print(f"✅ Fichier rules.json chargé avec succès.")
+          return loaded_rules
+  except FileNotFoundError:
+      print("Fichier rules.json non trouvé, utilisation des règles par défaut")
+      return DEFAULT_RULES
+  except json.JSONDecodeError:
+      print("Erreur de format dans rules.json, utilisation des règles par défaut")
+      return DEFAULT_RULES
+
+# Chargement des règles
+RULES = load_rules()
 
 # Configuration Groq par défaut (sans dépendance au fichier de configuration)
 GROQ_CONFIG = {
@@ -61,30 +101,6 @@ except OSError:
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
 
-# Always fetch fresh rules from DB
-def fetch_db_rules(scope: str = "texte"):
-    db_rules = get_rules_for_scope(scope)
-    categories = {}
-    whitelist = []
-    fallback_keywords = []
-    for r in db_rules:
-        categories[r.get("title", "")] = r.get("content", "")
-        if r.get("keywords"):
-            fallback_keywords.extend(r["keywords"])
-        if r.get("allows_if"):
-            whitelist.append(r["allows_if"])
-    return {
-        "whitelist_expressions": whitelist,
-        "moderation_categories": categories,
-        "bert_toxic_labels": ["TOXIC", "toxic"],
-        "groq_models": ["llama3-8b-8192", "llama3-70b-8192", "mixtral-8x7b-32768"],
-        "limits": {"max_text_length": 5000},
-        "fallback_keywords": fallback_keywords
-    }
-# Load initial moderation rules from DB
-rules = fetch_db_rules()
-
-
 class GroqCircuitBreaker:
     def __init__(self):
         self.failure_count = 0
@@ -114,10 +130,18 @@ groq_circuit_breaker = GroqCircuitBreaker()
 
 class ModerationService:
   @staticmethod
-  def detect_language_and_dialect(text: str) -> Dict[str, str]:
-    """Détecte automatiquement la langue et le dialecte du texte avec une approche intelligente"""
+  def detect_language_and_dialect_enhanced(text: str) -> Dict[str, Any]:
+    """Version améliorée de la détection de langue avec plus de détails et métriques"""
     text_lower = text.lower().strip()
     
+    if not text_lower:
+        return {
+            "language": "fr", 
+            "dialect": "standard",
+            "confidence_score": 0.0,
+            "patterns": {},
+            "analysis": {"error": "Texte vide"}
+        }
     
     # Analyse des caractères arabes
     arabic_chars = sum(1 for char in text if '\u0600' <= char <= '\u06FF')
@@ -125,123 +149,200 @@ class ModerationService:
     total_chars = len([c for c in text if c.isalpha()])
     
     if total_chars == 0:
-        return {"language": "fr", "dialect": "standard"}
+        return {
+            "language": "fr", 
+            "dialect": "standard",
+            "confidence_score": 0.0,
+            "patterns": {},
+            "analysis": {"error": "Aucun caractère alphabétique détecté"}
+        }
     
     arabic_ratio = arabic_chars / total_chars if total_chars > 0 else 0
     
-    # Patterns morphologiques darija (approche intelligente)
-    def analyze_darija_patterns(text: str) -> float:
-        """Analyse les patterns morphologiques du darija marocain"""
-        score = 0.0
+    def analyze_darija_patterns_enhanced(text: str) -> Dict[str, float]:
+        """Analyse améliorée des patterns morphologiques du darija marocain avec métriques"""
+        patterns_found = {}
+        
+        # Mots-clés essentiels darija avec pondération
+        essential_darija = {
+            'kifach': 1.0, 'nqadro': 0.9, 'nt3lmo': 0.8, 'lhaja': 0.7, 
+            'jdida': 0.6, 'daba': 0.8, 'bzaf': 0.9, 'chwiya': 0.8,
+            'machi': 1.0, 'ghir': 0.9, 'wach': 1.0, 'chkoun': 0.9, 
+            'dyal': 0.8, 'kayn': 0.7, 'makaynch': 1.0, '3lach': 0.9,
+            'hadchi': 0.8, 'hada': 0.6, 'hadik': 0.6, 'hadouk': 0.7
+        }
         
         # Patterns de conjugaison darija
-        conjugation_patterns = [
-            r'\bn[a-z]+o\b',      # nqadro, ndiro, nmchiw
-            r'\bkan[a-z]+\b',     # kanqdar, kandir, kanmchi
-            r'\bghan[a-z]+\b',    # ghanqdar, ghandir
-            r'\b[a-z]+ach\b',     # kifach, fuqach, 3lach
-            r'\b[a-z]+ch\b',      # wach, chkoun, chno
-        ]
-        
-        # Suffixes typiques darija
-        darija_suffixes = [
-            r'\b[a-z]+iya\b',     # chwiya, etc.
-            r'\b[a-z]+ouk\b',     # hadouk, etc.
-            r'\b[a-z]+ach\b',     # kifach, etc.
-        ]
-        
-        # Préfixes darija
-        darija_prefixes = [
-            r'\bma[a-z]+ch\b',    # machi, makaynch
-            r'\b3[a-z]+\b',       # 3lach, 3ndi, 3ndak
-            r'\bgh[a-z]+\b',      # ghir, ghandir
-        ]
-        
-        # Bigrammes typiques darija
-        darija_bigrams = [
-            'ki', 'fa', 'ch', 'nq', 'nt', 'lm', 'dj', 'gh', 'ch', 'dy', 'al'
-        ]
+        conjugation_patterns = {
+            r'\bn[a-z]+o\b': 0.8,      # nqadro, ndiro, nmchiw
+            r'\bkan[a-z]+\b': 0.7,     # kanqdar, kandir, kanmchi
+            r'\bghan[a-z]+\b': 0.8,    # ghanqdar, ghandir
+            r'\b[a-z]+ach\b': 0.9,     # kifach, fuqach, 3lach
+            r'\b[a-z]+ch\b': 0.6,      # wach, chkoun, chno
+        }
         
         import re
+        words = text_lower.split()
         
-        # Score basé sur les patterns de conjugaison
-        for pattern in conjugation_patterns:
+        # Score des mots essentiels
+        essential_score = 0
+        for word in words:
+            if word in essential_darija:
+                essential_score += essential_darija[word]
+                patterns_found[f"mot_darija_{word}"] = essential_darija[word]
+        
+        # Score des patterns de conjugaison
+        conjugation_score = 0
+        for pattern, weight in conjugation_patterns.items():
             matches = re.findall(pattern, text_lower)
-            score += len(matches) * 0.3
+            if matches:
+                conjugation_score += len(matches) * weight
+                patterns_found[f"pattern_{pattern}"] = len(matches) * weight
         
-        # Score basé sur les suffixes
-        for pattern in darija_suffixes:
-            matches = re.findall(pattern, text_lower)
-            score += len(matches) * 0.2
-        
-        # Score basé sur les préfixes
-        for pattern in darija_prefixes:
-            matches = re.findall(pattern, text_lower)
-            score += len(matches) * 0.25
-        
-        # Analyse des bigrammes
+        # Analyse des bigrammes darija
+        darija_bigrams = ['ki', 'fa', 'ch', 'nq', 'nt', 'lm', 'dj', 'gh', 'dy', 'al']
         bigram_score = 0
         for i in range(len(text_lower) - 1):
             bigram = text_lower[i:i+2]
             if bigram in darija_bigrams:
-                bigram_score += 1
+                bigram_score += 0.1
         
-        score += (bigram_score / len(text_lower)) * 2 if len(text_lower) > 0 else 0
+        patterns_found["essential_words"] = essential_score
+        patterns_found["conjugation_patterns"] = conjugation_score
+        patterns_found["bigram_score"] = bigram_score
         
-        # Mots-clés essentiels darija (liste réduite mais critique)
-        essential_darija = [
-            'kifach', 'nqadro', 'nt3lmo', 'lhaja', 'jdida', 'daba', 'bzaf', 
-            'chwiya', 'machi', 'ghir', 'wach', 'chkoun', 'dyal', 'kayn'
-        ]
+        total_score = essential_score + conjugation_score + bigram_score
+        return patterns_found, total_score
+    
+    def analyze_french_patterns_enhanced(text: str) -> Dict[str, float]:
+        """Analyse améliorée des patterns français"""
+        french_indicators = {
+            'le': 0.8, 'la': 0.8, 'les': 0.8, 'de': 0.6, 'du': 0.7, 
+            'des': 0.7, 'un': 0.6, 'une': 0.6, 'et': 0.5, 'est': 0.7, 
+            'dans': 0.6, 'avec': 0.6, 'pour': 0.6, 'sur': 0.5, 'ce': 0.5,
+            'qui': 0.7, 'que': 0.6, 'nous': 0.7, 'vous': 0.7, 'ils': 0.6
+        }
         
         words = text_lower.split()
-        essential_matches = sum(1 for word in words if word in essential_darija)
-        score += essential_matches * 0.5
+        patterns_found = {}
+        total_score = 0
         
-        return min(score, 3.0)  # Normaliser le score
+        for word in words:
+            if word in french_indicators:
+                score = french_indicators[word]
+                total_score += score
+                patterns_found[f"mot_francais_{word}"] = score
+        
+        return patterns_found, total_score
     
-    def analyze_french_patterns(text: str) -> float:
-        """Analyse les patterns français"""
-        french_indicators = ['le', 'la', 'les', 'de', 'du', 'des', 'un', 'une', 'et', 'est', 'dans']
+    def analyze_english_patterns_enhanced(text: str) -> Dict[str, float]:
+        """Analyse améliorée des patterns anglais"""
+        english_indicators = {
+            'the': 1.0, 'and': 0.8, 'is': 0.7, 'in': 0.6, 'to': 0.6, 
+            'of': 0.7, 'a': 0.5, 'that': 0.6, 'it': 0.6, 'with': 0.6,
+            'for': 0.5, 'as': 0.5, 'was': 0.6, 'on': 0.5, 'are': 0.6,
+            'you': 0.6, 'this': 0.6, 'be': 0.5, 'at': 0.5, 'by': 0.5
+        }
+        
         words = text_lower.split()
-        return sum(1 for word in words if word in french_indicators) * 0.2
+        patterns_found = {}
+        total_score = 0
+        
+        for word in words:
+            if word in english_indicators:
+                score = english_indicators[word]
+                total_score += score
+                patterns_found[f"mot_anglais_{word}"] = score
+        
+        return patterns_found, total_score
     
-    def analyze_english_patterns(text: str) -> float:
-        """Analyse les patterns anglais"""
-        english_indicators = ['the', 'and', 'is', 'in', 'to', 'of', 'a', 'that', 'it', 'with']
-        words = text_lower.split()
-        return sum(1 for word in words if word in english_indicators) * 0.2
+    # Analyse complète avec métriques
+    darija_patterns, darija_score = analyze_darija_patterns_enhanced(text_lower)
+    french_patterns, french_score = analyze_french_patterns_enhanced(text_lower)
+    english_patterns, english_score = analyze_english_patterns_enhanced(text_lower)
     
-    # Calcul des scores intelligents
-    darija_score = analyze_darija_patterns(text_lower)
-    french_score = analyze_french_patterns(text_lower)
-    english_score = analyze_english_patterns(text_lower)
+    # Compilation des patterns détectés
+    all_patterns = {
+        "darija": darija_patterns,
+        "french": french_patterns, 
+        "english": english_patterns,
+        "scores": {
+            "darija_total": darija_score,
+            "french_total": french_score,
+            "english_total": english_score,
+            "arabic_ratio": arabic_ratio
+        }
+    }
     
-    logger.info(f"Scores intelligents - Darija: {darija_score:.2f}, Français: {french_score:.2f}, Anglais: {english_score:.2f}, Ratio arabe: {arabic_ratio:.2f}")
+    # Logique de décision avec score de confiance
+    confidence_score = 0.0
+    detected_language = "fr"
+    detected_dialect = "standard"
     
-    # Logique de décision intelligente
     if darija_score >= 1.0 or (arabic_ratio > 0.1 and darija_score >= 0.5):
-        logger.info(f"Darija détecté avec score intelligent: {darija_score:.2f}")
-        return {"language": "ar", "dialect": "maghreb"}
+        detected_language = "ar"
+        detected_dialect = "maghreb"
+        confidence_score = min(darija_score / 3.0, 1.0)
+        logger.info(f"Darija détecté avec score: {darija_score:.2f}, confiance: {confidence_score:.2f}")
     
     elif arabic_ratio > 0.3:
-        return {"language": "ar", "dialect": "standard"}
+        detected_language = "ar"
+        detected_dialect = "standard"
+        confidence_score = arabic_ratio
     
     elif french_score > english_score and french_score > 0.5:
-        return {"language": "fr", "dialect": "standard"}
+        detected_language = "fr"
+        detected_dialect = "standard"
+        confidence_score = min(french_score / 5.0, 1.0)
     
     elif english_score > french_score and english_score > 0.5:
-        return {"language": "en", "dialect": "standard"}
+        detected_language = "en"
+        detected_dialect = "standard"
+        confidence_score = min(english_score / 5.0, 1.0)
     
-    # Analyse contextuelle pour les cas ambigus
-    if 'video' in text_lower or 'vidéo' in text_lower:
-        if darija_score > 0.3:
-            return {"language": "ar", "dialect": "maghreb"}
-        elif any(fr_word in text_lower for fr_word in ['va', 'de', 'rire', 'tuer']):
-            return {"language": "fr", "dialect": "standard"}
+    else:
+        # Analyse contextuelle pour les cas ambigus
+        if 'video' in text_lower or 'vidéo' in text_lower:
+            if darija_score > 0.3:
+                detected_language = "ar"
+                detected_dialect = "maghreb"
+                confidence_score = 0.6
+            elif any(fr_word in text_lower for fr_word in ['va', 'de', 'rire', 'tuer']):
+                detected_language = "fr"
+                detected_dialect = "standard"
+                confidence_score = 0.7
     
-    # Par défaut, utiliser l'analyse contextuelle
-    return {"language": "fr", "dialect": "standard"}
+    # Analyse détaillée du texte
+    text_analysis = {
+        "total_chars": len(text),
+        "alphabetic_chars": total_chars,
+        "arabic_chars": arabic_chars,
+        "latin_chars": latin_chars,
+        "arabic_ratio": arabic_ratio,
+        "word_count": len(text.split()),
+        "detected_patterns_count": {
+            "darija": len(darija_patterns),
+            "french": len(french_patterns),
+            "english": len(english_patterns)
+        }
+    }
+    
+    return {
+        "language": detected_language,
+        "dialect": detected_dialect,
+        "confidence_score": confidence_score,
+        "patterns": all_patterns,
+        "analysis": text_analysis
+    }
+
+  @staticmethod
+  def detect_language_and_dialect(text: str) -> Dict[str, str]:
+    """Détecte automatiquement la langue et le dialecte du texte avec une approche intelligente"""
+    enhanced_result = ModerationService.detect_language_and_dialect_enhanced(text)
+    return {
+        "language": enhanced_result["language"],
+        "dialect": enhanced_result["dialect"]
+    }
 
   @staticmethod
   def detect_language(text: str) -> str:
@@ -250,25 +351,22 @@ class ModerationService:
       return result["language"]
 
   @staticmethod
-
-  def is_whitelisted(text: str, rules: Dict = None) -> bool:
-      if rules is None:
-          rules = fetch_db_rules()
+  def is_whitelisted(text: str) -> bool:
+      """Vérifie si le texte contient une expression whitelistée"""
       text_lower = text.lower()
-      for expr in rules["whitelist_expressions"]:
+      for expr in RULES["whitelist_expressions"]:
           if expr in text_lower:
               return True
       return False
 
-
   @staticmethod
-  def detect_dynamic_keywords(text: str, category: str, rules: Dict) -> Dict:
+  def detect_dynamic_keywords(text: str, category: str) -> Dict:
       """Détecte les mots-clés sensibles basés sur les règles dynamiques"""
       text_lower = text.lower()
       found_keywords = []
       
       # Récupération de la règle pour cette catégorie
-      rule_description = rules["moderation_categories"].get(category, "")
+      rule_description = RULES["moderation_categories"].get(category, "")
       
       # Extraction des mots entre guillemets simples
       keywords = re.findall(r"'([^']*)'", rule_description)
@@ -283,12 +381,12 @@ class ModerationService:
       }
 
   @staticmethod
-  def check_all_dynamic_rules(text: str, rules: Dict) -> Dict:
+  def check_all_dynamic_rules(text: str) -> Dict:
       """Vérifie toutes les règles dynamiques automatiquement"""
       all_violations = {}
       
       # Parcourir toutes les catégories de modération
-      for category in rules["moderation_categories"].keys():
+      for category in RULES["moderation_categories"].keys():
           # Ignorer les catégories qui ont des fonctions spéciales
           if category in ["insultes", "harcèlement", "discours_haineux", "contenu_sexuel", "violence", "contenu_dangereux"]:
               continue
@@ -325,7 +423,7 @@ class ModerationService:
           except (IndexError, json.JSONDecodeError) as e:
               print(f"⚠️ Échec méthode 2: {e}")
       
-      # Méthode 3: Chercher des accolades { }
+      # Mthode 3: Chercher des accolades { }
       try:
           start = content.find('{')
           end = content.rfind('}') + 1
@@ -467,7 +565,7 @@ class ModerationService:
               "is_insult": False
           }
       
-      available_models = rules.get("groq_models", ["llama3-70b-8192", "llama3-8b-8192", "mixtral-8x7b-32768"])
+      available_models = RULES.get("groq_models", ["llama3-70b-8192", "llama3-8b-8192", "mixtral-8x7b-32768"])
       models_to_try = [model] + [m for m in available_models if m != model]
       
       for model_attempt in models_to_try:
@@ -518,7 +616,7 @@ class ModerationService:
       """
       Effectue une seule requête vers l'API Groq
       """
-      categories_list = [f"- {cat}: {desc}" for cat, desc in rules["moderation_categories"].items()]
+      categories_list = [f"- {cat}: {desc}" for cat, desc in RULES["moderation_categories"].items()]
       categories_text = "\n".join(categories_list)
       
       # Configuration des prompts selon la langue détectée
@@ -528,8 +626,10 @@ class ModerationService:
           context_rules = """
 IMPORTANT :
 - Sois STRICT, mais tiens compte du CONTEXTE.
-- Si un mot sensible est utilisé dans un but explicatif, pédagogique ou neutre, le texte est conforme.
-- Tu ne dois PAS signaler les mots sensibles s'ils ne sont pas utilisés avec une intention négative, violente, insultante, sexuelle ou dangereuse.
+- Considère le slang, l'orthographe phonétique, le verlan et le leetspeak.
+- Les avances sexuelles explicites, propositions non sollicitées ou harcèlement sexuel sont NON_CONFORMES, même exprimés en slang ou sous couvert d'humour.
+- Si un mot sensible est utilisé à des fins explicatives, pédagogiques ou clairement neutres, le texte est conforme.
+- Ne PAS ignorer des formulations sexuelles explicites visant une personne (ex: menaces ou propositions sexuelles) même si le texte contient des expressions familières comme "wtf".
 """
       elif language == "en":
           system_msg = "You are an expert in English content moderation. ALWAYS respond in English with valid JSON."
@@ -537,9 +637,10 @@ IMPORTANT :
           context_rules = """
 IMPORTANT:
 - Be STRICT, but consider the CONTEXT.
-- If a sensitive word is used for explanatory, educational, or neutral purposes, the text is compliant.
-- You should NOT flag sensitive words if they are not used with negative, violent, insulting, sexual, or dangerous intent.
-- Consider idiomatic expressions and context, especially in English or sports contexts.
+- Consider slang, phonetic spellings, verlan, and leetspeak.
+- Explicit sexual advances, unsolicited propositions, or sexual harassment are NON_COMPLIANT even if expressed with slang or humor.
+- If a sensitive word is used for explanatory, educational, or clearly neutral purposes, the text is compliant.
+- Do NOT ignore explicit sexual formulations aimed at a person even if the text includes neutral idioms like "wtf".
 """
       elif language == "ar":
           system_msg = "أنت خبير في مراقبة المحتوى العربي. أجب دائماً باللغة العربية مع JSON صحيح."
@@ -547,8 +648,9 @@ IMPORTANT:
           context_rules = """
 مهم:
 - كن صارماً، لكن خذ السياق في الاعتبار.
-- إذا تم استخدام كلمة حساسة لأغراض توضيحية أو تعليمية أو محايدة، فالنص مطابق.
-- يجب ألا تبلغ عن الكلمات الحساسة إذا لم تُستخدم بقصد سلبي أو عنيف أو مهين أو جنسي أو خطير.
+- ضع في الاعتبار العامية والتهجئة الصوتية ولغة "لييتسبيك".
+- المضايقات الجنسية أو العبارات الجنسية الصريحة (حتى لو كانت بروح الدعابة) تعتبر غير مطابقة.
+- إذا كانت الكلمات الحساسة لأغراض توضيحية أو تعليمية أو محايدة بوضوح، فالنص مطابق.
 """
       else:
           system_msg = "Tu es un expert en modération de contenu. Réponds dans la langue du texte analysé avec un JSON valide."
@@ -557,8 +659,10 @@ IMPORTANT:
 IMPORTANT :
 - Sois STRICT, mais tiens compte du CONTEXTE.
 - Analyse dans la langue du texte fourni.
+- Considère le slang, le verlan, l'orthographe phonétique et le leetspeak.
+- Les avances/propositions sexuelles explicites ou le harcèlement sexuel sont NON CONFORMES même sous couvert d'humour.
+- Si un terme sensible est utilisé de manière descriptive/pédagogique neutre, considère conforme.
 """
-
       prompt = f"""
 {prompt_intro}
 
@@ -695,8 +799,8 @@ IMPORTANT: Réponds UNIQUEMENT avec un JSON valide, sans texte supplémentaire a
     """Analyse complète du contenu utilisant principalement Groq, support multilingue avec résolution de conflits"""
     if not text or text.strip() == "":
         raise ValueError("Le texte ne peut pas être vide.")
-    if len(text) > rules["limits"]["max_text_length"]:
-        raise ValueError(f"Le texte est trop long (max {rules['limits']['max_text_length']} caractères).")
+    if len(text) > RULES["limits"]["max_text_length"]:
+        raise ValueError(f"Le texte est trop long (max {RULES['limits']['max_text_length']} caractères).")
     
     if language == "auto" or language == "" or language is None:
         lang_detection = ModerationService.detect_language_and_dialect(text)
@@ -708,14 +812,39 @@ IMPORTANT: Réponds UNIQUEMENT avec un JSON valide, sans texte supplémentaire a
         detected_dialect = "standard"
         print(f"🔍 Langue spécifiée: {detected_language}")
     
-    # Normalisation stricte pour garantir la cohérence texte/audio
+    # Normalisation générique (sans liste de mots): accents, répétitions, leetspeak
     def normalize_input(s):
         import string
         s = s.strip().lower()
-        # Supprimer la ponctuation finale (.,!?)
+        # Supprimer la ponctuation redondante en fin
         while s and s[-1] in ".!?":
             s = s[:-1]
-        return s.strip()
+
+        # Retirer accents/diacritiques
+        try:
+            s = ''.join(c for c in unicodedata.normalize('NFD', s) if not unicodedata.combining(c))
+        except Exception:
+            pass
+
+        # Réduire les répétitions excessives: cooool -> cool
+        try:
+            s = re.sub(r'(.)\1{2,}', r'\1\1', s)
+        except Exception:
+            pass
+
+        # De-leetspeak générique (sans liste spécifique de mots)
+        leet_map = str.maketrans({
+            '1': 'i', '!': 'i', '0': 'o', '3': 'e', '4': 'a', '5': 's', '7': 't',
+            '@': 'a', '$': 's', '€': 'e', '£': 'l'
+        })
+        try:
+            s = s.translate(leet_map)
+        except Exception:
+            pass
+
+        # Espace unique
+        s = re.sub(r'\s+', ' ', s).strip()
+        return s
 
     normalized_text = normalize_input(text)
     corrected_text = normalized_text
@@ -750,7 +879,22 @@ IMPORTANT: Réponds UNIQUEMENT avec un JSON valide, sans texte supplémentaire a
             "violated_rules": [],
             "conflict_detected": False,
             "detected_language": detected_language,
-            "detected_dialect": detected_dialect,  # Ajout du dialecte détecté
+            "detected_dialect": detected_dialect,
+            "copyright_strike_risk": False,
+            "copyright_analysis": {
+                "status": "success",
+                "music_detected": False,
+                "title": None,
+                "artist": None,
+                "album": None,
+                "release_date": None,
+                "label": None,
+                "copyright_protected": False,
+                "platforms": {}
+            },
+            "youtube_report": None,
+            "automatic_action": "allow",
+            "can_publish": True
         }
     
     # ANALYSE BERT (selon la langue)
@@ -767,84 +911,119 @@ IMPORTANT: Réponds UNIQUEMENT avec un JSON valide, sans texte supplémentaire a
             print(f"⚠️ Erreur lors de l'analyse BERT: {e}")
     
 
-    groq_result = await ModerationService.query_groq_enhanced(corrected_text, model, language=detected_language)
+    # Fournir au LLM le texte original et la version normalisée pour mieux comprendre le slang
+    groq_input = f"TEXTE_ORIGINAL: \"{text}\"\nTEXTE_NORMALISE: \"{processed_text_for_nlp}\""
+    groq_result = await ModerationService.query_groq_enhanced(groq_input, model, language=detected_language)
 
-    # Logique spéciale : expressions familières/humoristiques
-    neutral_expressions = [
-        "what the fuck", "wtf", "oh fuck", "fuck it", "what the hell", "damn", "shit", "no way"
-    ]
-    is_neutral_expression = any(expr in normalized_text for expr in neutral_expressions)
-    is_insulting = any(word in normalized_text for word in ["suck", "idiot", "stupid", "hate", "kill"])
-    if is_neutral_expression and not is_insulting:
-        print("😅 Expression familière/humoristique détectée - statut forcé conforme")
-        final_status = "conforme"
-        final_message = "Expression familière/humoristique détectée : le texte est conforme."
-        violated_rules = []
-        conflict_detected = False
-        groq_result = {
-            "status": "conforme",
-            "category": "aucun",
-            "reasoning": "Expression familière/humoristique détectée (ex: 'what the fuck') dans un contexte non insultant.",
-            "is_insult": False
+    print(f"🎵 Analyse copyright en cours pour le texte: '{text[:50]}...'")
+    copyright_analysis = {}
+    copyright_strike_risk = False
+    youtube_report = None
+    automatic_action = "allow"
+    can_publish = True
+    
+    try:
+        # Analyser le texte pour détecter des paroles de musique
+        copyright_service = CopyrightService()
+        copyright_result = await copyright_service.analyze_text_for_music(text)
+        # La réponse du service est structurée, avec une clé 'copyright_analysis'
+        copyright_analysis = copyright_result.get("copyright_analysis", {})
+        lyrics_analysis = copyright_result.get("lyrics_analysis", {})
+        
+        # Déterminer le risque de strike basé sur l'analyse
+        if copyright_analysis.get("music_detected", False) and copyright_analysis.get("copyright_protected", False):
+            copyright_strike_risk = True
+            automatic_action = "block"
+            can_publish = False
+            youtube_report = f"Contenu potentiellement protégé détecté: {copyright_analysis.get('title', 'Inconnu')} par {copyright_analysis.get('artist', 'Inconnu')}"
+            print(f"⚠️ Risque de copyright détecté: {copyright_analysis.get('title')} - {copyright_analysis.get('artist')}")
+        else:
+            print(f"✅ Aucun risque de copyright détecté")
+            
+    except Exception as e:
+        print(f"⚠️ Erreur lors de l'analyse copyright: {e}")
+        copyright_analysis = {
+            "status": "error",
+            "music_detected": False,
+            "title": None,
+            "artist": None,
+            "album": None,
+            "release_date": None,
+            "label": None,
+            "copyright_protected": False,
+            "platforms": {}
         }
-    else:
-        # RÉSOLUTION DES CONFLITS BERT vs GROQ
-        final_status = groq_result["status"]
-        conflict_detected = False
 
-        # Détecter les conflits
-        bert_says_toxic = bert_label in rules.get("bert_toxic_labels", ["toxic"])
-        groq_says_toxic = groq_result["status"] == "non_conforme"
+    # Suppression de l'auto-conformité pour expressions familières: décision déléguée à Groq/strict
+    # RÉSOLUTION DES CONFLITS BERT vs GROQ
+    final_status = groq_result["status"]
+    conflict_detected = False
 
-        if bert_says_toxic and not groq_says_toxic:
-            conflict_detected = True
-            print(f"⚠️ CONFLIT DÉTECTÉ: BERT={bert_label} vs GROQ={groq_result['status']}")
-            print(f"📝 Texte analysé: '{text}' (langue: {detected_language}, dialecte: {detected_dialect})")
+    # Détecter les conflits
+    bert_says_toxic = bert_label in RULES.get("bert_toxic_labels", ["toxic"])
+    groq_says_toxic = groq_result["status"] == "non_conforme"
 
-            # Logique de résolution : privilégier Groq si BERT a une faible confiance
-            if bert_confidence < 0.7:  # Seuil de confiance faible
+    if bert_says_toxic and not groq_says_toxic:
+        conflict_detected = True
+        print(f"⚠️ CONFLIT DÉTECTÉ: BERT={bert_label} vs GROQ={groq_result['status']}")
+        print(f"📝 Texte analysé: '{text}' (langue: {detected_language}, dialecte: {detected_dialect})")
+
+        # Logique de résolution : privilégier Groq si BERT a une faible confiance
+        if bert_confidence < 0.7:  # Seuil de confiance faible
+            final_status = "conforme"
+            print(f"✅ Résolution: GROQ prioritaire (BERT confiance faible: {bert_confidence:.3f})")
+        else:
+            # Double vérification avec Groq en mode strict
+            print("🔄 Double vérification avec Groq en mode strict...")
+            strict_groq_result = await ModerationService.query_groq_strict_verification(corrected_text, model, detected_language)
+            if strict_groq_result["status"] == "conforme":
                 final_status = "conforme"
-                print(f"✅ Résolution: GROQ prioritaire (BERT confiance faible: {bert_confidence:.3f})")
+                print("✅ Résolution: Texte confirmé comme conforme par double vérification")
             else:
-                # Double vérification avec Groq en mode strict
-                print("🔄 Double vérification avec Groq en mode strict...")
-                strict_groq_result = await ModerationService.query_groq_strict_verification(corrected_text, model, detected_language)
-                if strict_groq_result["status"] == "conforme":
-                    final_status = "conforme"
-                    print("✅ Résolution: Texte confirmé comme conforme par double vérification")
-                else:
-                    final_status = "non_conforme"
-                    print("❌ Résolution: Texte confirmé comme non conforme par double vérification")
+                final_status = "non_conforme"
+                print("❌ Résolution: Texte confirmé comme non conforme par double vérification")
 
-        elif not bert_says_toxic and groq_says_toxic:
-            conflict_detected = True
-            print(f"⚠️ CONFLIT DÉTECTÉ: BERT={bert_label} vs GROQ={groq_result['status']}")
-            # Dans ce cas, faire confiance à Groq (plus contextuel)
-            final_status = "non_conforme"
-            print("✅ Résolution: GROQ prioritaire (plus contextuel)")
+    elif not bert_says_toxic and groq_says_toxic:
+        conflict_detected = True
+        print(f"⚠️ CONFLIT DÉTECTÉ: BERT={bert_label} vs GROQ={groq_result['status']}")
+        # Dans ce cas, faire confiance à Groq (plus contextuel)
+        final_status = "non_conforme"
+        print("✅ Résolution: GROQ prioritaire (plus contextuel)")
 
-        # Message final et règles violées
-        if final_status != groq_result["status"]:
-            if conflict_detected:
-                final_message = f"[CONFLIT RÉSOLU] {groq_result['reasoning']} (BERT: {bert_label}, confiance: {bert_confidence:.3f})"
-            else:
-                final_message = groq_result["reasoning"]
+    # Message final et règles violées
+    if final_status != groq_result["status"]:
+        if conflict_detected:
+            final_message = f"[CONFLIT RÉSOLU] {groq_result['reasoning']} (BERT: {bert_label}, confiance: {bert_confidence:.3f})"
         else:
             final_message = groq_result["reasoning"]
+    else:
+        final_message = groq_result["reasoning"]
 
-        violated_rules = [groq_result["category"]] if final_status == "non_conforme" and groq_result["category"] != "aucun" else []
+    violated_rules = [groq_result["category"]] if final_status == "non_conforme" and groq_result["category"] != "aucun" else []
 
-        if groq_result["category"] == "erreur":
-            if "circuit breaker" in groq_result["reasoning"].lower():
-                final_status = "conforme"
-                final_message = f"Service de modération temporairement indisponible. Statut par défaut 'conforme'. ({groq_result['reasoning']})"
-            elif "503" in groq_result["reasoning"] or "502" in groq_result["reasoning"] or "504" in groq_result["reasoning"]:
-                final_status = "conforme"
-                final_message = f"Erreur lors de l'analyse Groq: {groq_result['reasoning']}. Statut par défaut 'conforme'."
-            else:
-                final_status = "conforme"
-                final_message = f"Erreur lors de l'analyse: {groq_result['reasoning']}. Statut par défaut 'conforme'."
-            violated_rules = []
+    if groq_result["category"] == "erreur":
+        if "circuit breaker" in groq_result["reasoning"].lower():
+            final_status = "conforme"
+            final_message = f"Service de modération temporairement indisponible. Statut par défaut 'conforme'. ({groq_result['reasoning']})"
+        elif "503" in groq_result["reasoning"] or "502" in groq_result["reasoning"] or "504" in groq_result["reasoning"]:
+            final_status = "conforme"
+            final_message = f"Erreur lors de l'analyse Groq: {groq_result['reasoning']}. Statut par défaut 'conforme'."
+        else:
+            final_status = "conforme"
+            final_message = f"Erreur lors de l'analyse: {groq_result['reasoning']}. Statut par défaut 'conforme'."
+        violated_rules = []
+
+    # Politique conservatrice: bloquer tout contenu non conforme
+    if final_status == "non_conforme":
+        automatic_action = "block"
+        can_publish = False
+    
+    # En plus, bloquer si risque de copyright élevé
+    if copyright_strike_risk:
+        automatic_action = "block"
+        can_publish = False
+        if final_status == "conforme":
+            final_message += f" Cependant, risque de copyright détecté: {youtube_report}"
     
     # Sauvegarde en base
     try:
@@ -865,17 +1044,48 @@ IMPORTANT: Réponds UNIQUEMENT avec un JSON valide, sans texte supplémentaire a
         print(f"⚠️ Erreur lors de la sauvegarde: {e}")
         db.rollback()
     
-    return {
+    # Préparer la réponse finale
+    # Récupérer l'analyse audio depuis copyright_analysis si disponible
+    audio_analysis = copyright_analysis.get("audio_analysis", {})
+    
+    # S'assurer que les champs essentiels sont présents
+    if not audio_analysis and isinstance(copyright_analysis, dict):
+        audio_analysis = {
+            "music_detected": copyright_analysis.get("music_detected", False),
+            "music_confidence": copyright_analysis.get("confidence_score", 0.0),
+            "is_copyrighted": copyright_analysis.get("copyright_protected", False),
+            "copyright_status": "copyrighted" if copyright_analysis.get("copyright_protected") else "copyright_free",
+            "copyright_confidence": copyright_analysis.get("confidence_score", 0.0),
+            "detected_genres": copyright_analysis.get("detected_genres", []),
+            "is_public_domain": copyright_analysis.get("is_public_domain", False),
+            "refrain_detected": copyright_analysis.get("refrain_detected", False),
+            "refrain_confidence": copyright_analysis.get("refrain_confidence", 0.0),
+            "refrain_patterns": copyright_analysis.get("refrain_patterns", []),
+            "autotune_detected": copyright_analysis.get("autotune_detected", False),
+            "autotune_confidence": copyright_analysis.get("autotune_confidence", 0.0),
+            "autotune_artifacts": copyright_analysis.get("autotune_artifacts", [])
+        }
+    
+    # Construire la réponse finale en respectant la résolution des conflits
+    response = {
         "status": final_status,
         "bert": {"label": bert_label, "confidence": bert_confidence},
         "groq": groq_result,
-        "message": final_message,
+        "message": final_message if 'final_message' in locals() else groq_result.get("reasoning", "Analyse effectuée avec succès"),
         "processed_text": processed_text_for_nlp,
-        "violated_rules": list(set(violated_rules)),
-        "conflict_detected": conflict_detected,
+        "violated_rules": violated_rules if 'violated_rules' in locals() else [],
+        "conflict_detected": conflict_detected if 'conflict_detected' in locals() else False,
         "detected_language": detected_language,
-        "detected_dialect": detected_dialect,  # Ajout du dialecte dans la réponse
+        "detected_dialect": detected_dialect,
+        "copyright_strike_risk": copyright_strike_risk,
+        "copyright_analysis": copyright_analysis,
+        "youtube_report": youtube_report,
+        "automatic_action": automatic_action,
+        "can_publish": can_publish,
+        "audio_analysis": audio_analysis
     }
+
+    return response
 
   @staticmethod
   async def query_groq_strict_verification(text: str, model: str = "llama3-70b-8192", language: str = "fr") -> Dict:
@@ -1035,12 +1245,12 @@ Réponds UNIQUEMENT avec un JSON valide, sans texte supplémentaire:
   @staticmethod
   def get_rules():
       """Retourne les règles de modération"""
-      return rules
+      return RULES
 
   @staticmethod
   def get_available_models():
       """Retourne les modèles disponibles"""
-      return {"models": rules["groq_models"]}
+      return {"models": RULES["groq_models"]}
 
   @staticmethod
   def get_health_status():

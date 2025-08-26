@@ -1,6 +1,5 @@
 
-import difflib, json, hashlib
-from pathlib import Path
+import difflib, hashlib
 
 def text_hash(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()

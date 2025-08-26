@@ -1,14 +1,12 @@
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
 from sqlalchemy.orm import Session
-import tempfile
-import os
 from config import get_db
 from dependencies import get_current_user
 from Models.user_model import User
 from Models.analyzer_model import Analyzer
 from groq import Groq
 from Services.moderation_service import ModerationService
-from Shemas.moderation_schemas import TextInput, ContentCheckResponse, ModerationHistoryResponse, ModelsResponse, UpdateQuestionInput
+from Shemas.moderation_schemas import TextInput, ContentCheckResponse, ModerationHistoryResponse, ModelsResponse, UpdateQuestionInput, LanguageDetectionInput, LanguageDetectionResponse
 
 router = APIRouter(tags=["Moderation"])
 
