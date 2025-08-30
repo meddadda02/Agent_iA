@@ -348,3 +348,9 @@ def get_avg_toxicity_by_user(db: Session = Depends(get_db), admin: User = Depend
         {"user_id": r.id, "username": r.username, "average_toxicity": float(r.avg_toxicity or 0)}
         for r in results
     ]
+
+#from Services.rules_refresh import refresh_rules_job
+#@router.post("/refresh-rules")
+#async def refresh_rules():
+#    refresh_rules_job()
+#    return {"message": "Rules refreshed successfully"}

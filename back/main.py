@@ -51,3 +51,38 @@ if not os.path.exists(uploads_dir):
 app.mount("/images", StaticFiles(directory=uploads_dir), name="images")
 app.mount("/audio", StaticFiles(directory=uploads_dir), name="audio")
 app.mount("/video", StaticFiles(directory=uploads_dir), name="video")
+
+
+
+
+# Scheduler for rules refresh
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.interval import IntervalTrigger
+from fastapi import HTTPException
+from Services.rules_refresh import refresh_rules_job
+
+scheduler = BackgroundScheduler()
+scheduler.start()
+
+# Auto every 3 days
+scheduler.add_job(
+    refresh_rules_job,
+    IntervalTrigger(days=3),
+    id="refresh_rules",
+    replace_existing=True
+)
+
+@app.post("/rules/refresh")
+def manual_refresh(current_user: str = "admin"):  # TODO: replace with real auth
+    if current_user != "admin":
+        raise HTTPException(status_code=403, detail="Not authorized")
+    return refresh_rules_job()
+
+@app.get("/rules/status")
+def rules_status():
+    jobs = scheduler.get_jobs()
+    return {
+        "jobs": [job.id for job in jobs],
+        "next_run_time": str(jobs[0].next_run_time) if jobs else None
+    }
+

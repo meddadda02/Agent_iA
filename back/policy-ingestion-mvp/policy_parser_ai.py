@@ -10,14 +10,14 @@ from sitemap_crawler import get_catalog
 import os
 from dotenv import load_dotenv
 
-# Charger les variables d'environnement
+# Load env (optional, you can hardcode if you prefer)
 load_dotenv()
 
-# === DB connection ===
+# --- DB connection (kept as you had it) ---
 conn = psycopg2.connect(
-    dbname=os.getenv("dbname"),   # nom database depuis .env
+    dbname="agent_ai",
     user="postgres",
-    password=os.getenv("dbpassword"), #password database from .env 
+    password="salma",
     host="localhost",
     port=5432
 )
@@ -61,10 +61,14 @@ def ai_extract_fields(text: str):
         scope = ["text", "video", "audio", "image"]
 
     # Extract prohibitions
-    prohibits = [s.text.strip() for s in doc.sents if re.search(r"prohibit|forbid|not allowed|must not", s.text, re.I)]
+    prohibits = [s.text.strip()
+                 for s in doc.sents
+                 if re.search(r"prohibit|forbid|not allowed|must not", s.text, re.I)]
 
     # Extract conditional allowances
-    allows_if = [s.text.strip() for s in doc.sents if re.search(r"allowed if|permitted if|can.*if", s.text, re.I)]
+    allows_if = [s.text.strip()
+                 for s in doc.sents
+                 if re.search(r"allowed if|permitted if|can.*if", s.text, re.I)]
 
     # Keywords
     keywords = [kw for kw, _ in kw_extractor.extract_keywords(text)]
@@ -72,19 +76,25 @@ def ai_extract_fields(text: str):
     return scope, prohibits, allows_if, keywords
 
 def store_rule(title, link, content, source):
+    # Keep content hash (useful for updates/debug)
     h = hashlib.sha256(content.encode("utf-8")).hexdigest()
 
     scope, prohibits, allows_if, keywords = ai_extract_fields(content)
 
     with conn.cursor() as cur:
+        # IMPORTANT: de-duplicate on LINK (you already have a unique constraint on link)
         cur.execute("""
             INSERT INTO rules (title, link, content, published_at, source, hash, scope, prohibits, allows_if, keywords)
             VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-            ON CONFLICT (hash) DO UPDATE SET
-            scope = EXCLUDED.scope,
-            prohibits = EXCLUDED.prohibits,
-            allows_if = EXCLUDED.allows_if,
-            keywords = EXCLUDED.keywords
+            ON CONFLICT (link) DO UPDATE SET
+                content      = EXCLUDED.content,
+                published_at = EXCLUDED.published_at,
+                source       = EXCLUDED.source,
+                hash         = EXCLUDED.hash,
+                scope        = EXCLUDED.scope,
+                prohibits    = EXCLUDED.prohibits,
+                allows_if    = EXCLUDED.allows_if,
+                keywords     = EXCLUDED.keywords
         """, (
             title, link, content, datetime.utcnow(), source, h,
             scope, prohibits, allows_if, keywords
@@ -103,5 +113,9 @@ def to_rule_doc(url: str):
 if __name__ == "__main__":
     urls = get_catalog()
     for entry in urls:
-        to_rule_doc(entry["loc"])
+        try:
+            to_rule_doc(entry["loc"])
+        except Exception as e:
+            # Don't crash the batch if one page fails
+            print(f"⚠️ Skipped {entry.get('loc')} due to error: {e}")
     print("✅ Ingestion complete.")

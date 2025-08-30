@@ -7,9 +7,9 @@ passlib[bcrypt]==1.7.4
 python-dotenv==1.0.0
 Pillow==10.1.0
 email-validator==2.1.0
-transformers==4.35.0
-torch==2.1.0
-spacy==3.7.2
+#transformers==4.35.0
+#torch==2.1.0
+#spacy==3.7.2
 fr-core-news-sm @ https://github.com/explosion/spacy-models/releases/download/fr_core_news_sm-3.7.0/fr_core_news_sm-3.7.0-py3-none-any.whl
 httpx==0.25.2
 ultralytics
@@ -21,3 +21,10 @@ openai
 psycopg2-binary>=2.9.9
 pyspellchecker
 moviepy>=1.0.3
+numpy==1.26.4
+torch==2.1.2
+torchvision==0.16.2
+torchaudio==2.1.2
+transformers==4.38.2
+spacy==3.7.2
+opencv-python==4.9.0.80
