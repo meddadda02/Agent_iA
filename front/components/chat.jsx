@@ -33,6 +33,9 @@ export default function Chat() {
 
   const messageEndRef = useRef(null)
   const profileMenuRef = useRef(null)
+  const nextMsgId = useRef(1)
+  const audioInputRef = useRef(null)
+  const videoInputRef = useRef(null)
 
   // Authentication and session management
   useEffect(() => {
@@ -243,7 +246,7 @@ export default function Chat() {
   const handleAsk = async () => {
     if (!input.trim() || isLoading) return
     setIsLoading(true)
-    setMessages((prev) => [...prev, { text: input, isUser: true }])
+    setMessages((prev) => [...prev, { id: nextMsgId.current++, text: input, isUser: true, kind: "user" }])
     if (!token) return
 
     try {
@@ -258,25 +261,254 @@ export default function Chat() {
       if (!res.ok) throw new Error("Erreur pendant l'analyse")
       const data = await res.json()
 
-      // Build formatted message
+      // Normalise & store full payload for richer rendering
       const groq = data.groq || {}
-      const status = groq.status || data.status || "non conforme"
+      const status = groq.status || data.status || "non_conforme"
       const category = groq.category || data.category || "inconnu"
       const reasoning = groq.reasoning || data.reasoning || ""
-      const messageText = `Le texte entré est ${status} aux règles YouTube.\nCatégorie : ${category}\nExplication : ${reasoning}`
 
-      setMessages((prev) => [...prev, { text: messageText, isUser: false }])
+      const analysisMsg = {
+        id: nextMsgId.current++,
+        isUser: false,
+        kind: "analysis",
+        status,
+        category,
+        reasoning,
+        payload: data,
+        expanded: false,
+        showJson: false,
+      }
+
+      setMessages((prev) => [...prev, analysisMsg])
 
       // After successful analysis, re-fetch history to get the new item with its actual ID
       await fetchHistory()
     } catch (error) {
-      setMessages((prev) => [...prev, { text: "Erreur pendant l'analyse", isUser: false }])
+      const msg = typeof error?.message === "string" ? error.message : "Erreur pendant l'analyse"
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: nextMsgId.current++,
+          isUser: false,
+          kind: "error",
+          text: msg,
+        },
+      ])
       console.error(error)
     }
     setInput("")
     setEditId(null)
     setIsLoading(false)
   }
+
+  // --- Audio upload ---
+  const handlePickAudio = useCallback(() => {
+    audioInputRef.current?.click()
+  }, [])
+
+  const handleUploadAudio = useCallback(
+    async (e) => {
+      const file = e.target.files?.[0]
+      e.target.value = "" // reset so same file can be reselected
+      if (!file || !token || isLoading) return
+
+      try {
+        setIsLoading(true)
+        setMessages((prev) => [
+          ...prev,
+          { id: nextMsgId.current++, kind: "user", isUser: true, text: `Audio: ${file.name}` },
+        ])
+
+        const form = new FormData()
+        form.append("file", file)
+        if (selectedModel) form.append("model", selectedModel)
+
+        const res = await fetch(`${BASE_URL}/moderation/audio`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}` },
+          body: form,
+        })
+        if (!res.ok) throw new Error("Erreur pendant l'analyse audio")
+        const data = await res.json()
+
+        const cm = data.content_moderation || {}
+        const groq = cm.groq || {}
+        const status = groq.status || cm.status || "inconnu"
+        const category = groq.category || "inconnu"
+        const reasoning = groq.reasoning || ""
+
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: nextMsgId.current++,
+            isUser: false,
+            kind: "analysis",
+            status,
+            category,
+            reasoning,
+            payload: data,
+            expanded: false,
+            showJson: false,
+          },
+        ])
+      } catch (error) {
+        setMessages((prev) => [
+          ...prev,
+          { id: nextMsgId.current++, isUser: false, kind: "error", text: error?.message || "Erreur audio" },
+        ])
+        console.error(error)
+      } finally {
+        setIsLoading(false)
+      }
+    },
+    [token, isLoading, selectedModel]
+  )
+
+  // --- Video upload ---
+  const handlePickVideo = useCallback(() => {
+    videoInputRef.current?.click()
+  }, [])
+
+  const handleUploadVideo = useCallback(
+    async (e) => {
+      const file = e.target.files?.[0]
+      e.target.value = ""
+      if (!file || !token || isLoading) return
+
+      try {
+        setIsLoading(true)
+        setMessages((prev) => [
+          ...prev,
+          { id: nextMsgId.current++, kind: "user", isUser: true, text: `Vidéo: ${file.name}` },
+        ])
+
+        const form = new FormData()
+        form.append("file", file)
+        if (selectedModel) form.append("model", selectedModel)
+
+        const res = await fetch(`${BASE_URL}/video/moderation/analyze`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}` },
+          body: form,
+        })
+        if (!res.ok) throw new Error("Erreur pendant l'analyse vidéo")
+        const data = await res.json()
+
+        // Try to extract moderation-like fields if present, fallback to generic
+        const report = data.report || {}
+        const cm = report.content_moderation || {}
+        const groq = (cm && cm.groq) || {}
+        const status = groq.status || cm.status || report.status || "inconnu"
+        const category = groq.category || cm.category || "video"
+        const reasoning = groq.reasoning || cm.reasoning || "Analyse vidéo terminée"
+
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: nextMsgId.current++,
+            isUser: false,
+            kind: "analysis",
+            status,
+            category,
+            reasoning,
+            payload: data,
+            expanded: false,
+            showJson: false,
+          },
+        ])
+      } catch (error) {
+        setMessages((prev) => [
+          ...prev,
+          { id: nextMsgId.current++, isUser: false, kind: "error", text: error?.message || "Erreur vidéo" },
+        ])
+        console.error(error)
+      } finally {
+        setIsLoading(false)
+      }
+    },
+    [token, isLoading, selectedModel]
+  )
+
+  // UI helpers for analysis messages
+  const formatAnalysisPlain = useCallback((msg) => {
+    const lines = []
+    const cap = (s) => (s ? (s[0].toUpperCase() + s.slice(1)) : "")
+    const safe = (v, d = "-") => (v === null || v === undefined || v === "" ? d : v)
+
+    // Primary moderation summary
+    const status = (msg.status || "").toLowerCase() === "conforme" ? "Conforme" : cap(msg.status || "Inconnu")
+    lines.push(status)
+    lines.push(safe(msg.category, "aucun"))
+    if (msg.reasoning) lines.push(msg.reasoning)
+
+    // Audio block (if present)
+    const am = msg.payload?.audio_moderation
+    if (am) {
+      lines.push("")
+      lines.push(`Audio: ${am.status === 'blocked' ? 'Bloqué' : 'Autorisé'}`)
+      lines.push(am.can_publish === false ? "Publication non autorisée" : "Publication possible")
+      if (am.message) lines.push(am.message)
+      if (Array.isArray(am.violated_rules) && am.violated_rules.length) {
+        lines.push("Règles violées")
+        for (const r of am.violated_rules) lines.push(r)
+      }
+      const ca = am.copyright_analysis
+      if (ca) {
+        lines.push("Détails piste détectée")
+        lines.push(`Titre: ${safe(ca.title)}`)
+        lines.push(`Artiste: ${safe(ca.artist)}`)
+        lines.push(`Album: ${safe(ca.album)}`)
+        lines.push(`Sortie: ${safe(ca.release_date)}`)
+        const confPct = typeof ca.confidence_score === 'number' ? `${Math.round(ca.confidence_score * 100)}%` : safe(ca.confidence_score)
+        lines.push(`Confiance: ${confPct}`)
+        lines.push(`Risque de strike: ${safe(ca.strike_risk_level)}`)
+        if (ca.recommendation) lines.push(ca.recommendation)
+      }
+      const seg = am.copyrighted_segment
+      if (seg && (seg.start_time || seg.end_time)) {
+        lines.push("Segment protégé")
+        const offsetStr = typeof seg.offset_ms === 'number' ? ` (offset ${Math.round(seg.offset_ms / 1000)}s)` : ''
+        lines.push(`De ${safe(seg.start_time)} à ${safe(seg.end_time)}${offsetStr}`)
+      }
+    }
+
+    // Video block (if present)
+    const vrep = msg.payload?.report
+    if (vrep) {
+      lines.push("")
+      const canPub = msg.payload?.can_publish === false ? 'Bloquée' : 'Autorisée'
+      lines.push(`Vidéo: ${canPub}`)
+      lines.push(msg.payload?.can_publish === false ? "Publication non autorisée" : "Publication possible")
+      if (msg.payload?.copyright_warning?.message) {
+        lines.push(msg.payload.copyright_warning.message)
+      }
+      if (vrep.content_moderation?.groq?.reasoning && !msg.reasoning) {
+        // If no top-level reasoning, show video's reasoning
+        lines.push(vrep.content_moderation.groq.reasoning)
+      }
+      const vca = msg.payload?.copyright_analysis
+      if (vca) {
+        lines.push("Détails piste détectée")
+        lines.push(`Titre: ${safe(vca.title)}`)
+        lines.push(`Artiste: ${safe(vca.artist)}`)
+        lines.push(`Album: ${safe(vca.album)}`)
+        lines.push(`Sortie: ${safe(vca.release_date)}`)
+        const confPct = typeof vca.confidence_score === 'number' ? `${Math.round(vca.confidence_score * 100)}%` : safe(vca.confidence_score)
+        lines.push(`Confiance: ${confPct}`)
+        lines.push(`Risque de strike: ${safe(vca.strike_risk_level)}`)
+        if (vca.recommendation) lines.push(vca.recommendation)
+      }
+    }
+
+    return lines.join("\n")
+  }, [])
+  const toggleReasoning = useCallback((id) => {
+    setMessages((prev) => prev.map((m) => (m.id === id ? { ...m, expanded: !m.expanded } : m)))
+  }, [])
+
+  const toggleJson = useCallback((id) => {
+    setMessages((prev) => prev.map((m) => (m.id === id ? { ...m, showJson: !m.showJson } : m)))
+  }, [])
 
   // Display a loading screen during authentication
   if (isAuthLoading) {
@@ -614,33 +846,87 @@ export default function Chat() {
             </div>
           )}
 
-          {messages.map((msg, i) => (
-            <div
-              key={i}
-              className={`max-w-4xl px-6 py-4 rounded-3xl whitespace-pre-wrap break-words shadow-lg transition-all duration-200 ${
-                msg.isUser
-                  ? "bg-gradient-to-r from-pink-500 to-red-500 text-white self-end ml-auto"
-                  : darkMode
-                    ? "bg-gray-800/30 text-white self-start border border-gray-700/50 backdrop-blur-sm"
-                    : "bg-white text-gray-900 self-start border border-gray-200 backdrop-blur-sm"
-              }`}
-            >
-              {msg.isLoading ? (
-                <div className="flex items-center gap-3">
-                  <div
-                    className={`animate-spin rounded-full h-5 w-5 border-b-2 ${msg.isUser ? "border-white" : "border-pink-500"}`}
-                  ></div>
-                  <span
-                    className={`italic ${msg.isUser ? "text-white" : darkMode ? "text-gray-300" : "text-gray-600"}`}
-                  >
-                    Analyse en cours...
-                  </span>
+          {messages.map((msg, idx) => {
+            // User message
+            if (msg.kind === "user") {
+              return (
+                <div
+                  key={`${msg.id ?? 'm'}-${idx}`}
+                  className="max-w-4xl px-6 py-4 rounded-3xl whitespace-pre-wrap break-words shadow-lg transition-all duration-200 bg-gradient-to-r from-pink-500 to-red-500 text-white self-end ml-auto"
+                >
+                  {msg.text}
                 </div>
-              ) : (
-                msg.text
-              )}
-            </div>
-          ))}
+              )
+            }
+
+            // Error message
+            if (msg.kind === "error") {
+              return (
+                <div
+                  key={`${msg.id ?? 'm'}-${idx}`}
+                  className={`max-w-4xl px-6 py-4 rounded-3xl shadow-lg self-start border ${
+                    darkMode ? "bg-gray-800/30 text-red-300 border-red-800/50" : "bg-red-50 text-red-700 border-red-200"
+                  }`}
+                >
+                  ⚠️ {msg.text}
+                </div>
+              )
+            }
+
+            // Analysis message (rich card)
+            if (msg.kind === "analysis") {
+              const textBase = darkMode ? "text-white" : "text-gray-900"
+              const subText = darkMode ? "text-gray-300" : "text-gray-600"
+              const plain = formatAnalysisPlain(msg)
+              return (
+                <div
+                  key={`${msg.id ?? 'm'}-${idx}`}
+                  className={`max-w-4xl px-6 py-5 rounded-3xl self-start shadow-lg border backdrop-blur-sm ${
+                    darkMode ? "bg-gray-800/30 border-gray-700/50 text-white" : "bg-white border-gray-200 text-gray-900"
+                  }`}
+                >
+                  <pre className={`${textBase} whitespace-pre-wrap break-words`}>{plain}</pre>
+                  <div className="mt-3 flex items-center gap-3">
+                    <button
+                      onClick={() => toggleJson(msg.id)}
+                      className={`text-sm px-3 py-1.5 rounded-full border transition-colors ${
+                        darkMode
+                          ? "border-gray-600 text-gray-200 hover:bg-gray-700"
+                          : "border-gray-300 text-gray-700 hover:bg-gray-100"
+                      }`}
+                    >
+                      {msg.showJson ? "Masquer le JSON" : "Voir le JSON brut"}
+                    </button>
+                    {msg.payload?.groq?.model && (
+                      <span className={`text-xs ${subText}`}>Modèle: {msg.payload.groq.model || "-"}</span>
+                    )}
+                  </div>
+                  {msg.showJson && (
+                    <pre
+                      className={`mt-3 p-3 rounded-xl overflow-auto text-xs ${
+                        darkMode ? "bg-black/40 text-gray-200" : "bg-gray-50 text-gray-800"
+                      }`}
+                      style={{ maxHeight: 320 }}
+                    >
+                      {JSON.stringify(msg.payload, null, 2)}
+                    </pre>
+                  )}
+                </div>
+              )
+            }
+
+            // Fallback generic
+            return (
+              <div
+                key={`${msg.id ?? 'm'}-${idx}`}
+                className={`max-w-4xl px-6 py-4 rounded-3xl whitespace-pre-wrap break-words shadow-lg self-start border ${
+                  darkMode ? "bg-gray-800/30 text-white border-gray-700/50" : "bg-white text-gray-900 border-gray-200"
+                }`}
+              >
+                {msg.text}
+              </div>
+            )
+          })}
           <div ref={messageEndRef} />
         </section>
 
@@ -673,6 +959,26 @@ export default function Chat() {
                   : "border-gray-300 bg-white/80 text-gray-900 placeholder-gray-500"
               }`}
             />
+            <input
+              ref={audioInputRef}
+              type="file"
+              accept="audio/*"
+              className="hidden"
+              onChange={handleUploadAudio}
+            />
+            <button
+              type="button"
+              onClick={handlePickAudio}
+              disabled={isLoading}
+              className={`rounded-full px-4 py-3 font-semibold border transition-colors hidden sm:block ${
+                darkMode
+                  ? "border-gray-600 text-gray-200 hover:bg-gray-700"
+                  : "border-gray-300 text-gray-700 hover:bg-gray-100"
+              }`}
+              title="Analyser un fichier audio"
+            >
+              Audio
+            </button>
             <button
               type="submit"
               disabled={isLoading}

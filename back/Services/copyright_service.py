@@ -540,7 +540,7 @@ class CopyrightService:
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
                 ],
-                model="llama3-70b-8192",
+                model="llama3-8b-8192",
                 response_format={"type": "json_object"},
                 temperature=0.3,  # Pour des résultats plus déterministes
                 max_tokens=1000

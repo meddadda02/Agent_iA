@@ -39,7 +39,7 @@ DEFAULT_RULES = {
       "contenu_dangereux": "Détecte les contenus dangereux ou illégaux"
   },
   "bert_toxic_labels": ["TOXIC", "toxic"],
-  "groq_models": ["llama3-8b-8192", "llama3-70b-8192", "mixtral-8x7b-32768"],
+  "groq_models": ["llama3-8b-8192", "llama3-8b-8192", "mixtral-8x7b-32768"],
   "limits": {
       "max_text_length": 5000
   },
@@ -544,7 +544,7 @@ class ModerationService:
               }
 
   @staticmethod
-  async def query_groq_with_retry(text: str, model: str = "llama3-70b-8192", language: str = "fr") -> Dict:
+  async def query_groq_with_retry(text: str, model: str = "llama3-8b-8192", language: str = "fr") -> Dict:
       """
       Analyse le contenu via l'API Groq avec retry automatique et fallback entre modèles
       """
@@ -565,7 +565,7 @@ class ModerationService:
               "is_insult": False
           }
       
-      available_models = RULES.get("groq_models", ["llama3-70b-8192", "llama3-8b-8192", "mixtral-8x7b-32768"])
+      available_models = RULES.get("groq_models", ["llama3-8b-8192", "llama3-8b-8192", "mixtral-8x7b-32768"])
       models_to_try = [model] + [m for m in available_models if m != model]
       
       for model_attempt in models_to_try:
@@ -759,7 +759,7 @@ IMPORTANT: Réponds UNIQUEMENT avec un JSON valide, sans texte supplémentaire a
               return ModerationService.smart_fallback_analysis(content, text)
 
   @staticmethod
-  async def query_groq_enhanced(text: str, model: str = "llama3-70b-8192", language: str = "fr") -> Dict:
+  async def query_groq_enhanced(text: str, model: str = "llama3-8b-8192", language: str = "fr") -> Dict:
       """
       Point d'entrée principal pour l'analyse Groq - utilise maintenant le système de retry
       """
@@ -1088,7 +1088,7 @@ IMPORTANT: Réponds UNIQUEMENT avec un JSON valide, sans texte supplémentaire a
     return response
 
   @staticmethod
-  async def query_groq_strict_verification(text: str, model: str = "llama3-70b-8192", language: str = "fr") -> Dict:
+  async def query_groq_strict_verification(text: str, model: str = "llama3-8b-8192", language: str = "fr") -> Dict:
     """Double vérification stricte avec Groq pour résoudre les conflits"""
     if not GROQ_API_KEY:
         return {

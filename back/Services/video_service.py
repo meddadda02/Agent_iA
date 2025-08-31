@@ -160,7 +160,7 @@ async def analyze_video_full(
     video_path: str,
     db,
     user_id: Optional[int],
-    model: str = "llama3-70b-8192",
+    model: str = "llama3-8b-8192",
     interval_ms: int = 200,
     language_hint: str = ""
 ) -> Dict:

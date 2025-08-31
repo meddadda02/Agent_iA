@@ -15,9 +15,9 @@ load_dotenv()
 
 # --- DB connection (kept as you had it) ---
 conn = psycopg2.connect(
-    dbname="agent_ai",
+    dbname=os.getenv("dbname"),
     user="postgres",
-    password="salma",
+    password=os.getenv("dbpassword"),
     host="localhost",
     port=5432
 )

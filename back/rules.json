@@ -23,7 +23,7 @@
     "crever de faim"
   ],
   "bert_toxic_labels": ["toxic", "severe_toxic", "obscene", "threat", "insult", "identity_hate"],
-  "groq_models": ["llama3-8b-8192", "llama3-70b-8192", "mixtral-8x7b-32768", "gemma-7b-it"],
+  "groq_models": ["llama-3.1-70b-versatile", "llama-3.1-8b-instant"],
   "moderation_categories": {
     "insultes": "Insultes directes ou indirectes, même subtiles, utilisant des animaux/objets pour rabaisser, ou toute forme de langage dégradant.",
     "harcèlement": "Attaques personnelles, moqueries, humiliations, menaces, ou incitation à la violence.",
