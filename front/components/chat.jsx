@@ -315,9 +315,18 @@ export default function Chat() {
 
       try {
         setIsLoading(true)
+        const audioUrl = URL.createObjectURL(file)
         setMessages((prev) => [
           ...prev,
-          { id: nextMsgId.current++, kind: "user", isUser: true, text: `Audio: ${file.name}` },
+          {
+            id: nextMsgId.current++,
+            kind: "user",
+            isUser: true,
+            text: `Audio: ${file.name}`,
+            mediaType: "audio",
+            mediaUrl: audioUrl,
+            fileName: file.name,
+          },
         ])
 
         const form = new FormData()
@@ -378,9 +387,18 @@ export default function Chat() {
 
       try {
         setIsLoading(true)
+        const videoUrl = URL.createObjectURL(file)
         setMessages((prev) => [
           ...prev,
-          { id: nextMsgId.current++, kind: "user", isUser: true, text: `Vidéo: ${file.name}` },
+          {
+            id: nextMsgId.current++,
+            kind: "user",
+            isUser: true,
+            text: `Vidéo: ${file.name}`,
+            mediaType: "video",
+            mediaUrl: videoUrl,
+            fileName: file.name,
+          },
         ])
 
         const form = new FormData()
@@ -401,7 +419,7 @@ export default function Chat() {
         const groq = (cm && cm.groq) || {}
         const status = groq.status || cm.status || report.status || "inconnu"
         const category = groq.category || cm.category || "video"
-        const reasoning = groq.reasoning || cm.reasoning || "Analyse vidéo terminée"
+        const reasoning = cm.reasoning || "Analyse vidéo terminée"
 
         setMessages((prev) => [
           ...prev,
@@ -443,9 +461,18 @@ export default function Chat() {
 
       try {
         setIsLoading(true)
+        const imageUrl = URL.createObjectURL(file)
         setMessages((prev) => [
           ...prev,
-          { id: nextMsgId.current++, kind: "user", isUser: true, text: `Image: ${file.name}` },
+          {
+            id: nextMsgId.current++,
+            kind: "user",
+            isUser: true,
+            text: `Image: ${file.name}`,
+            mediaType: "image",
+            mediaUrl: imageUrl,
+            fileName: file.name,
+          },
         ])
 
         const form = new FormData()
@@ -464,7 +491,7 @@ export default function Chat() {
         const groq = cm.groq || {}
         const status = groq.status || cm.status || "inconnu"
         const category = groq.category || cm.category || "image"
-        const reasoning = groq.reasoning || cm.reasoning || "Analyse image terminée"
+        const reasoning = cm.reasoning || "Analyse image terminée"
 
         setMessages((prev) => [
           ...prev,
@@ -496,105 +523,54 @@ export default function Chat() {
   // UI helpers for analysis messages
   const formatAnalysisPlain = useCallback((msg) => {
     const lines = []
-    const cap = (s) => (s ? s[0].toUpperCase() + s.slice(1) : "")
-    const safe = (v, d = "-") => (v === null || v === undefined || v === "" ? d : v)
 
-    // Primary moderation summary
-    const status = (msg.status || "").toLowerCase() === "conforme" ? "Conforme" : cap(msg.status || "Inconnu")
-    lines.push(status)
-    lines.push(safe(msg.category, "aucun"))
-    if (msg.reasoning) lines.push(msg.reasoning)
+    // Determine overall compatibility
+    const isCompatible = msg.payload?.can_publish !== false && (msg.status || "").toLowerCase() === "conforme"
 
-    // Audio block (if present)
-    const am = msg.payload?.audio_moderation
-    if (am) {
-      lines.push("")
-      lines.push(`Audio: ${am.status === "blocked" ? "Bloqué" : "Autorisé"}`)
-      lines.push(am.can_publish === false ? "Publication non autorisée" : "Publication possible")
-      if (am.message) lines.push(am.message)
-      if (Array.isArray(am.violated_rules) && am.violated_rules.length) {
-        lines.push("Règles violées")
-        for (const r of am.violated_rules) lines.push(r)
-      }
-      const ca = am.copyright_analysis
-      if (ca) {
-        lines.push("Détails piste détectée")
-        lines.push(`Titre: ${safe(ca.title)}`)
-        lines.push(`Artiste: ${safe(ca.artist)}`)
-        lines.push(`Album: ${safe(ca.album)}`)
-        lines.push(`Sortie: ${safe(ca.release_date)}`)
-        const confPct =
-          typeof ca.confidence_score === "number"
-            ? `${Math.round(ca.confidence_score * 100)}%`
-            : safe(ca.confidence_score)
-        lines.push(`Confiance: ${confPct}`)
-        lines.push(`Risque de strike: ${safe(ca.strike_risk_level)}`)
-        if (ca.recommendation) lines.push(ca.recommendation)
-      }
-      const seg = am.copyrighted_segment
-      if (seg && (seg.start_time || seg.end_time)) {
-        lines.push("Segment protégé")
-        const offsetStr = typeof seg.offset_ms === "number" ? ` (offset ${Math.round(seg.offset_ms / 1000)}s)` : ""
-        lines.push(`De ${safe(seg.start_time)} à ${safe(seg.end_time)}${offsetStr}`)
-      }
-    }
+    if (isCompatible) {
+      lines.push("✅ Contenu compatible")
+      lines.push("Votre contenu peut être publié sans problème.")
+    } else {
+      lines.push("❌ Contenu non compatible")
 
-    // Video block (if present)
-    const vrep = msg.payload?.report
-    if (vrep) {
-      lines.push("")
-      const canPub = msg.payload?.can_publish === false ? "Bloquée" : "Autorisée"
-      lines.push(`Vidéo: ${canPub}`)
-      lines.push(msg.payload?.can_publish === false ? "Publication non autorisée" : "Publication possible")
-      if (msg.payload?.copyright_warning?.message) {
-        lines.push(msg.payload.copyright_warning.message)
+      // Show why it's not compatible
+      if (msg.reasoning) {
+        lines.push("")
+        lines.push("Raison:")
+        lines.push(msg.reasoning)
       }
-      if (vrep.content_moderation?.groq?.reasoning && !msg.reasoning) {
-        // If no top-level reasoning, show video's reasoning
-        lines.push(vrep.content_moderation.groq.reasoning)
-      }
-      const vca = msg.payload?.copyright_analysis
-      if (vca) {
-        lines.push("Détails piste détectée")
-        lines.push(`Titre: ${safe(vca.title)}`)
-        lines.push(`Artiste: ${safe(vca.artist)}`)
-        lines.push(`Album: ${safe(vca.album)}`)
-        lines.push(`Sortie: ${safe(vca.release_date)}`)
-        const confPct =
-          typeof vca.confidence_score === "number"
-            ? `${Math.round(vca.confidence_score * 100)}%`
-            : safe(vca.confidence_score)
-        lines.push(`Confiance: ${confPct}`)
-        lines.push(`Risque de strike: ${safe(vca.strike_risk_level)}`)
-        if (vca.recommendation) lines.push(vca.recommendation)
-      }
-    }
 
-    // Image block (if present)
-    const irep = msg.payload?.report
-    if (irep) {
-      lines.push("")
-      const canPub = msg.payload?.can_publish === false ? "Bloquée" : "Autorisée"
-      lines.push(`Image: ${canPub}`)
-      lines.push(msg.payload?.can_publish === false ? "Publication non autorisée" : "Publication possible")
-      if (irep.content_moderation?.groq?.reasoning && !msg.reasoning) {
-        // If no top-level reasoning, show image's reasoning
-        lines.push(irep.content_moderation.groq.reasoning)
+      // Check for copyright issues
+      const copyright = msg.payload?.copyright_analysis || msg.payload?.audio_moderation?.copyright_analysis
+      if (copyright) {
+        lines.push("")
+        lines.push("Problème de droits d'auteur détecté:")
+        lines.push(`• Titre: ${copyright.title || "Inconnu"}`)
+        lines.push(`• Artiste: ${copyright.artist || "Inconnu"}`)
+        if (copyright.strike_risk_level) {
+          lines.push(`• Risque de strike: ${copyright.strike_risk_level}`)
+        }
+
+        // Show when/where the issue occurs
+        const segment = msg.payload?.audio_moderation?.copyrighted_segment
+        if (segment && (segment.start_time || segment.end_time)) {
+          lines.push(`• Segment problématique: ${segment.start_time || "0s"} - ${segment.end_time || "fin"}`)
+        }
       }
-      const ica = msg.payload?.copyright_analysis
-      if (ica) {
-        lines.push("Détails piste détectée")
-        lines.push(`Titre: ${safe(ica.title)}`)
-        lines.push(`Artiste: ${safe(ica.artist)}`)
-        lines.push(`Album: ${safe(ica.album)}`)
-        lines.push(`Sortie: ${safe(ica.release_date)}`)
-        const confPct =
-          typeof ica.confidence_score === "number"
-            ? `${Math.round(ica.confidence_score * 100)}%`
-            : safe(ica.confidence_score)
-        lines.push(`Confiance: ${confPct}`)
-        lines.push(`Risque de strike: ${safe(ica.strike_risk_level)}`)
-        if (ica.recommendation) lines.push(ica.recommendation)
+
+      // Show suggestions
+      const recommendation =
+        copyright?.recommendation || msg.payload?.audio_moderation?.copyright_analysis?.recommendation
+      if (recommendation) {
+        lines.push("")
+        lines.push("Suggestion:")
+        lines.push(recommendation)
+      } else {
+        lines.push("")
+        lines.push("Suggestions:")
+        lines.push("• Retirez le contenu protégé")
+        lines.push("• Utilisez de la musique libre de droits")
+        lines.push("• Contactez le détenteur des droits pour obtenir une licence")
       }
     }
 
@@ -607,6 +583,168 @@ export default function Chat() {
   const toggleJson = useCallback((id) => {
     setMessages((prev) => prev.map((m) => (m.id === id ? { ...m, showJson: !m.showJson } : m)))
   }, [])
+
+  const formatAnalysisRich = useCallback(
+    (msg) => {
+      const report = msg.payload?.report
+      if (!report) return null
+
+      return (
+        <div className="space-y-6">
+          {/* Analysis Summary */}
+          <div
+            className={`p-4 rounded-xl border ${darkMode ? "bg-gray-800/50 border-gray-700" : "bg-gray-50 border-gray-200"}`}
+          >
+            <div className="flex items-center gap-3 mb-3">
+              <div className={`w-3 h-3 rounded-full ${report.can_publish ? "bg-green-500" : "bg-red-500"}`}></div>
+              <h3 className={`font-semibold ${darkMode ? "text-white" : "text-gray-900"}`}>
+                Statut: {report.can_publish ? "Autorisé" : "Bloqué"}
+              </h3>
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+              <div>
+                <span className={`block ${darkMode ? "text-gray-400" : "text-gray-600"}`}>Images analysées</span>
+                <span className={`font-medium ${darkMode ? "text-white" : "text-gray-900"}`}>
+                  {report.summary?.frames_analyzed || 0}
+                </span>
+              </div>
+              <div>
+                <span className={`block ${darkMode ? "text-gray-400" : "text-gray-600"}`}>Violations</span>
+                <span className={`font-medium ${darkMode ? "text-white" : "text-gray-900"}`}>
+                  {report.summary?.violations_count || 0}
+                </span>
+              </div>
+              <div>
+                <span className={`block ${darkMode ? "text-gray-400" : "text-gray-600"}`}>Toxique</span>
+                <span className={`font-medium ${report.summary?.toxic ? "text-red-500" : "text-green-500"}`}>
+                  {report.summary?.toxic ? "Oui" : "Non"}
+                </span>
+              </div>
+              <div>
+                <span className={`block ${darkMode ? "text-gray-400" : "text-gray-600"}`}>YouTube</span>
+                <span
+                  className={`font-medium ${
+                    report.youtube_report?.compatible !== false && !report.copyright_analysis?.copyright_detected
+                      ? "text-green-500"
+                      : "text-red-500"
+                  }`}
+                >
+                  {report.youtube_report?.compatible !== false && !report.copyright_analysis?.copyright_detected
+                    ? "Compatible"
+                    : "Non compatible"}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* Copyright Analysis */}
+          {report.copyright_analysis && (
+            <div
+              className={`p-4 rounded-xl border ${darkMode ? "bg-gray-800/50 border-gray-700" : "bg-gray-50 border-gray-200"}`}
+            >
+              <div className="flex items-center gap-3 mb-3">
+                <div
+                  className={`w-8 h-8 rounded-full flex items-center justify-center ${
+                    report.copyright_analysis.copyright_detected
+                      ? "bg-red-100 text-red-600"
+                      : "bg-green-100 text-green-600"
+                  }`}
+                >
+                  {report.copyright_analysis.copyright_detected ? "⚠️" : "✅"}
+                </div>
+                <h3 className={`font-semibold ${darkMode ? "text-white" : "text-gray-900"}`}>
+                  Analyse des droits d'auteur
+                </h3>
+              </div>
+
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className={`${darkMode ? "text-gray-400" : "text-gray-600"}`}>Statut</span>
+                  <span
+                    className={`font-medium px-3 py-1 rounded-full text-sm ${
+                      report.copyright_analysis.copyright_detected
+                        ? "bg-red-100 text-red-700"
+                        : "bg-green-100 text-green-700"
+                    }`}
+                  >
+                    {report.copyright_analysis.copyright_detected ? "Détecté" : "Libre"}
+                  </span>
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <span className={`${darkMode ? "text-gray-400" : "text-gray-600"}`}>Risque de strike</span>
+                  <span
+                    className={`font-medium px-3 py-1 rounded-full text-sm ${
+                      report.copyright_analysis.strike_risk_level === "low"
+                        ? "bg-green-100 text-green-700"
+                        : report.copyright_analysis.strike_risk_level === "medium"
+                          ? "bg-yellow-100 text-yellow-700"
+                          : "bg-red-100 text-red-700"
+                    }`}
+                  >
+                    {report.copyright_analysis.strike_risk_level || "Faible"}
+                  </span>
+                </div>
+
+                {report.copyright_analysis.recommendation && (
+                  <div className={`p-3 rounded-lg ${darkMode ? "bg-gray-700/50" : "bg-white"}`}>
+                    <p className={`text-sm ${darkMode ? "text-gray-300" : "text-gray-700"}`}>
+                      {report.copyright_analysis.recommendation}
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* YouTube Report */}
+          {report.youtube_report && (
+            <div
+              className={`p-4 rounded-xl border ${darkMode ? "bg-gray-800/50 border-gray-700" : "bg-gray-50 border-gray-200"}`}
+            >
+              <div className="flex items-center gap-3 mb-3">
+                <div className="w-8 h-8 rounded-full bg-red-100 flex items-center justify-center">
+                  <span className="text-red-600 font-bold text-sm">YT</span>
+                </div>
+                <h3 className={`font-semibold ${darkMode ? "text-white" : "text-gray-900"}`}>Rapport YouTube</h3>
+              </div>
+
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className={`${darkMode ? "text-gray-400" : "text-gray-600"}`}>Niveau de risque</span>
+                  <span
+                    className={`font-medium px-3 py-1 rounded-full text-sm ${
+                      report.youtube_report.risk_level === "none"
+                        ? "bg-green-100 text-green-700"
+                        : report.youtube_report.risk_level === "low"
+                          ? "bg-yellow-100 text-yellow-700"
+                          : "bg-red-100 text-red-700"
+                    }`}
+                  >
+                    {report.youtube_report.risk_level === "none" ? "Aucun" : report.youtube_report.risk_level}
+                  </span>
+                </div>
+
+                {report.youtube_report.youtube_advice && report.youtube_report.youtube_advice.length > 0 && (
+                  <div>
+                    <h4 className={`font-medium mb-2 ${darkMode ? "text-white" : "text-gray-900"}`}>Conseils</h4>
+                    <div className="space-y-1">
+                      {report.youtube_report.youtube_advice.map((advice, idx) => (
+                        <div key={idx} className={`text-sm ${darkMode ? "text-gray-300" : "text-gray-700"}`}>
+                          {advice}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      )
+    },
+    [darkMode],
+  )
 
   // Display a loading screen during authentication
   if (isAuthLoading) {
@@ -952,7 +1090,30 @@ export default function Chat() {
                   key={`${msg.id ?? "m"}-${idx}`}
                   className="max-w-4xl px-6 py-4 rounded-3xl whitespace-pre-wrap break-words shadow-lg transition-all duration-200 bg-gradient-to-r from-pink-500 to-red-500 text-white self-end ml-auto"
                 >
-                  {msg.text}
+                  {msg.mediaType && msg.mediaUrl ? (
+                    <div className="space-y-3">
+                      <div className="text-sm opacity-90">{msg.fileName}</div>
+                      {msg.mediaType === "image" && (
+                        <img
+                          src={msg.mediaUrl || "/placeholder.svg"}
+                          alt={msg.fileName}
+                          className="max-w-full max-h-64 rounded-lg object-contain"
+                        />
+                      )}
+                      {msg.mediaType === "video" && (
+                        <video src={msg.mediaUrl} controls className="max-w-full max-h-64 rounded-lg">
+                          Votre navigateur ne supporte pas la lecture vidéo.
+                        </video>
+                      )}
+                      {msg.mediaType === "audio" && (
+                        <audio src={msg.mediaUrl} controls className="w-full">
+                          Votre navigateur ne supporte pas la lecture audio.
+                        </audio>
+                      )}
+                    </div>
+                  ) : (
+                    msg.text
+                  )}
                 </div>
               )
             }
@@ -976,6 +1137,8 @@ export default function Chat() {
               const textBase = darkMode ? "text-white" : "text-gray-900"
               const subText = darkMode ? "text-gray-300" : "text-gray-600"
               const plain = formatAnalysisPlain(msg)
+              const richContent = formatAnalysisRich(msg)
+
               return (
                 <div
                   key={`${msg.id ?? "m"}-${idx}`}
@@ -983,7 +1146,12 @@ export default function Chat() {
                     darkMode ? "bg-gray-800/30 border-gray-700/50 text-white" : "bg-white border-gray-200 text-gray-900"
                   }`}
                 >
-                  <pre className={`${textBase} whitespace-pre-wrap break-words`}>{plain}</pre>
+                  {richContent ? (
+                    richContent
+                  ) : (
+                    <pre className={`${textBase} whitespace-pre-wrap break-words`}>{plain}</pre>
+                  )}
+
                   <div className="mt-3 flex items-center gap-3">
                     <button
                       onClick={() => toggleJson(msg.id)}
