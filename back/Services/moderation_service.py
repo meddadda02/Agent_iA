@@ -2,7 +2,7 @@ from transformers import pipeline
 import spacy
 import httpx
 import os
-from dotenv import load_dotenv
+from dotenv import load_dotenv, find_dotenv
 from typing import Dict, List, Optional, Any
 import re
 import json
@@ -20,8 +20,8 @@ from Services.copyright_service import CopyrightService
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-# Chargement des variables d'environnement
-load_dotenv()
+# Chargement des variables d'environnement (recherche depuis le projet racine)
+load_dotenv(find_dotenv(), override=False)
 
 # Règles par défaut si le fichier JSON n'existe pas
 DEFAULT_RULES = {
@@ -39,7 +39,7 @@ DEFAULT_RULES = {
       "contenu_dangereux": "Détecte les contenus dangereux ou illégaux"
   },
   "bert_toxic_labels": ["TOXIC", "toxic"],
-  "groq_models": ["llama3-8b-8192", "llama3-8b-8192", "mixtral-8x7b-32768"],
+  "groq_models": ["llama-3.1-70b-versatile", "llama-3.1-8b-instant"],
   "limits": {
       "max_text_length": 5000
   },
@@ -98,7 +98,9 @@ except OSError:
 
 
 # Configuration API Groq
-GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+def _get_groq_api_key():
+    return os.getenv("GROQ_API_KEY")
+
 GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
 
 class GroqCircuitBreaker:
@@ -455,11 +457,12 @@ class ModerationService:
       return None
 
   @staticmethod
-  def smart_fallback_analysis(content: str, original_text: str) -> Dict:
-      """Analyse de fallback intelligente qui comprend le contexte"""
+  def smart_fallback_analysis(content: str, original_text: str, copyright_analysis: Dict = None) -> Dict:
+      """Analyse de fallback intelligente qui comprend le contexte et détecte le copyright"""
       print(f"🔄 Analyse de fallback intelligente pour: '{original_text}'")
       
       content_lower = content.lower()
+      original_lower = original_text.lower()
       
       # Vérifier d'abord si la réponse indique explicitement que c'est conforme
       positive_indicators = [
@@ -474,7 +477,25 @@ class ModerationService:
           "insulte", "insult", "offensive", "inappropriate", "problematic"
       ]
       
-      # Compter les indicateurs positifs et négatifs
+      # Vérifier si on a des données copyright de l'analyse ACRCloud
+      if copyright_analysis and copyright_analysis.get("music_detected"):
+          is_copyrighted = (
+              copyright_analysis.get("copyright_protected", False) or
+              copyright_analysis.get("strike_risk_level") in ["high", "critical"] or
+              copyright_analysis.get("confidence_score", 0) >= 0.85
+          )
+          
+          if is_copyrighted:
+              print("🎵 Copyright détecté via analyse ACRCloud - contenu bloqué")
+              return {
+                  "status": "non_conforme",
+                  "category": "copyright",
+                  "reasoning": f"Musique protégée détectée: {copyright_analysis.get('title', 'Titre inconnu')} par {copyright_analysis.get('artist', 'Artiste inconnu')}",
+                  "is_insult": False,
+                  "copyright_analysis": copyright_analysis
+              }
+      
+      # Compter les indicateurs positifs et négatifs pour la modération de contenu
       positive_count = sum(1 for indicator in positive_indicators if indicator in content_lower)
       negative_count = sum(1 for indicator in negative_indicators if indicator in content_lower)
       
@@ -544,14 +565,14 @@ class ModerationService:
               }
 
   @staticmethod
-  async def query_groq_with_retry(text: str, model: str = "llama3-8b-8192", language: str = "fr") -> Dict:
+  async def query_groq_with_retry(text: str, model: str = "llama-3.1-70b-versatile", language: str = "fr") -> Dict:
       """
       Analyse le contenu via l'API Groq avec retry automatique et fallback entre modèles
       """
-      if not GROQ_API_KEY:
+      if not _get_groq_api_key():
           return {
               "status": "conforme",
-              "category": "erreur",
+              "category": "aucun",
               "reasoning": "API Groq non configurée - analyse impossible",
               "is_insult": False
           }
@@ -565,7 +586,7 @@ class ModerationService:
               "is_insult": False
           }
       
-      available_models = RULES.get("groq_models", ["llama3-8b-8192", "llama3-8b-8192", "mixtral-8x7b-32768"])
+      available_models = RULES.get("groq_models", ["llama-3.1-70b-versatile", "llama-3.1-8b-instant"])
       models_to_try = [model] + [m for m in available_models if m != model]
       
       for model_attempt in models_to_try:
@@ -608,7 +629,8 @@ class ModerationService:
       
       return ModerationService.smart_fallback_analysis(
           f"Échec de tous les modèles Groq après {GROQ_CONFIG['max_retries']} tentatives", 
-          text
+          text,
+          None  # Pas de données copyright disponibles ici
       )
 
   @staticmethod
@@ -693,7 +715,7 @@ IMPORTANT: Réponds UNIQUEMENT avec un JSON valide, sans texte supplémentaire a
 """
       
       headers = {
-          "Authorization": f"Bearer {GROQ_API_KEY}",
+          "Authorization": f"Bearer {_get_groq_api_key()}",
           "Content-Type": "application/json",
       }
       
@@ -743,7 +765,7 @@ IMPORTANT: Réponds UNIQUEMENT avec un JSON valide, sans texte supplémentaire a
               # Validation des champs requis
               if not all(key in result for key in ["status", "category", "reasoning"]):
                   print("⚠️ Champs manquants dans la réponse JSON")
-                  return ModerationService.smart_fallback_analysis(content, text)
+                  return ModerationService.smart_fallback_analysis(content, text, None)
               
               # Normalisation du statut
               if result["status"].lower() in ["non_conforme", "non conforme", "non-conforme"]:
@@ -759,7 +781,7 @@ IMPORTANT: Réponds UNIQUEMENT avec un JSON valide, sans texte supplémentaire a
               return ModerationService.smart_fallback_analysis(content, text)
 
   @staticmethod
-  async def query_groq_enhanced(text: str, model: str = "llama3-8b-8192", language: str = "fr") -> Dict:
+  async def query_groq_enhanced(text: str, model: str = "llama-3.3-70b-versatile", language: str = "fr") -> Dict:
       """
       Point d'entrée principal pour l'analyse Groq - utilise maintenant le système de retry
       """
@@ -1088,9 +1110,9 @@ IMPORTANT: Réponds UNIQUEMENT avec un JSON valide, sans texte supplémentaire a
     return response
 
   @staticmethod
-  async def query_groq_strict_verification(text: str, model: str = "llama3-8b-8192", language: str = "fr") -> Dict:
+  async def query_groq_strict_verification(text: str, model: str = "llama-3.1-70b-versatile", language: str = "fr") -> Dict:
     """Double vérification stricte avec Groq pour résoudre les conflits"""
-    if not GROQ_API_KEY:
+    if not _get_groq_api_key():
         return {
             "status": "conforme",
             "category": "erreur",
@@ -1191,7 +1213,7 @@ Réponds UNIQUEMENT avec un JSON valide, sans texte supplémentaire:
 """
     
     headers = {
-        "Authorization": f"Bearer {GROQ_API_KEY}",
+        "Authorization": f"Bearer {_get_groq_api_key()}",
         "Content-Type": "application/json",
     }
     
@@ -1260,7 +1282,7 @@ Réponds UNIQUEMENT avec un JSON valide, sans texte supplémentaire:
           "services": {
               "spacy": nlp is not None,
               "bert": bert_classifier is not None,
-              "groq": GROQ_API_KEY is not None,
+              "groq": _get_groq_api_key() is not None,
               "database": "connected",
               "spellchecker": spell is not None
           },

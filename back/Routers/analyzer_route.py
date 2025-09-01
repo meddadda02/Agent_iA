@@ -44,7 +44,8 @@ async def get_moderation_history(
                         question=analysis.question,
                         response=analysis.response,
                         toxic=analysis.toxic,
-                        date=analysis.date.isoformat() if analysis.date else None
+                        date=analysis.date.isoformat() if analysis.date else None,
+                        type=analysis.type
                     )
                 )
             except Exception as inner_e:
@@ -127,7 +128,8 @@ async def search_moderation_history(
                         question=analysis.question,
                         response=analysis.response,
                         toxic=analysis.toxic,
-                        date=analysis.date.isoformat() if analysis.date else None
+                        date=analysis.date.isoformat() if analysis.date else None,
+                        type=analysis.type
                     )
                 )
             except Exception as inner_e:

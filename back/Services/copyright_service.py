@@ -4,6 +4,7 @@ import asyncio
 from enum import Enum
 from groq import Groq
 import os
+from dotenv import load_dotenv, find_dotenv
 import json
 import tempfile
 
@@ -16,6 +17,8 @@ class CopyrightAction(Enum):
 
 class CopyrightService:
     def __init__(self):
+        # Charger .env depuis la racine du projet si disponible
+        load_dotenv(find_dotenv(), override=False)
         self.acrcloud_service = ACRCloudService()
         self.risk_thresholds = {
             "confidence_critical": 0.85,
@@ -540,7 +543,7 @@ class CopyrightService:
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
                 ],
-                model="llama3-8b-8192",
+                model="llama-3.3-70b-versatile",
                 response_format={"type": "json_object"},
                 temperature=0.3,  # Pour des résultats plus déterministes
                 max_tokens=1000

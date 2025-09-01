@@ -2,9 +2,10 @@ import os
 import groq
 import json
 import re
-from dotenv import load_dotenv
+from dotenv import load_dotenv, find_dotenv
 
-load_dotenv()
+# Charge .env depuis la racine du projet si possible
+load_dotenv(find_dotenv(), override=False)
 
 client = groq.Groq(api_key=os.getenv("GROQ_API_KEY"))
 
@@ -12,7 +13,7 @@ client = groq.Groq(api_key=os.getenv("GROQ_API_KEY"))
 class LLMService:
     @staticmethod
     def get_available_models():
-        return {"models": ["llama3-8b-8192", "llama3-7b", "yolov8n"]}
+        return {"models": ["llama-3.1-8b-instant", "llama-3.1-70b-versatile", "yolov8n"]}
 
 
 
@@ -75,7 +76,7 @@ def check_youtube_compatibility(detections):
 
     chat_completion = client.chat.completions.create(
         messages=[{"role": "user", "content": prompt}],
-        model="llama3-8b-8192"
+        model="llama-3.1-8b-instant"
     )
 
     response_text = chat_completion.choices[0].message.content

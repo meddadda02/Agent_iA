@@ -16,7 +16,7 @@ export default function Chat() {
   const [models, setModels] = useState([])
   const [selectedModel, setSelectedModel] = useState("")
   const [editId, setEditId] = useState(null)
-  const [menuOpen, setMenuOpen] = useState(false)
+  const [menuOpen, setMenuOpen] = useState(true)
   const [darkMode, setDarkMode] = useState(() => {
     if (typeof window !== "undefined") {
       const saved = localStorage.getItem("darkMode")
@@ -137,8 +137,11 @@ export default function Chat() {
     try {
       const res = await fetch(`${BASE_URL}/moderation/history`, {
         headers: { Authorization: `Bearer ${token}` },
+      }).catch((err) => {
+        console.error("Network error:", err)
+        throw new Error("Erreur de connexion au serveur")
       })
-      if (!res.ok) throw new Error("Erreur chargement historique")
+      if (!res.ok) throw new Error(`Erreur chargement historique (${res.status})`)
       const data = await res.json()
       setHistory(data || [])
     } catch (error) {
@@ -166,10 +169,10 @@ export default function Chat() {
     }
   }, [search, token, currentUser, fetchHistory])
 
-  // Initial load of full history
-  useEffect(() => {
-    fetchHistory()
-  }, [fetchHistory])
+  // Initial load of full history - disabled to prevent duplication
+  // useEffect(() => {
+  //   fetchHistory()
+  // }, [fetchHistory])
 
   // Search history (backend)
   useEffect(() => {
@@ -283,7 +286,7 @@ export default function Chat() {
       setMessages((prev) => [...prev, analysisMsg])
 
       // After successful analysis, re-fetch history to get the new item with its actual ID
-      await fetchHistory()
+      // await fetchHistory() // Commented out to prevent duplication
     } catch (error) {
       const msg = typeof error?.message === "string" ? error.message : "Erreur pendant l'analyse"
       setMessages((prev) => [
@@ -337,15 +340,93 @@ export default function Chat() {
           method: "POST",
           headers: { Authorization: `Bearer ${token}` },
           body: form,
+        }).catch((err) => {
+          console.error("Network error:", err)
+          throw new Error("Erreur de connexion au serveur - Vérifiez que le backend est démarré")
         })
-        if (!res.ok) throw new Error("Erreur pendant l'analyse audio")
+        if (!res.ok) throw new Error(`Erreur pendant l'analyse audio (${res.status})`)
         const data = await res.json()
 
-        const cm = data.content_moderation || {}
-        const groq = cm.groq || {}
-        const status = groq.status || cm.status || "inconnu"
-        const category = groq.category || "inconnu"
-        const reasoning = groq.reasoning || ""
+        // Keep audio response structure simple and independent
+        const audioModeration = data.audio_moderation || {}
+        const contentModeration = data.content_moderation || {}
+
+        // Base status and reasoning on audio-specific information
+        const lyricsAnalysis = audioModeration.lyrics_analysis || {}
+        const copyrightAnalysis = audioModeration.copyright_analysis || {}
+
+        const status = audioModeration.can_publish ? "conforme" : "bloqué"
+        const category = "audio"
+
+        // Build detailed structured reasoning
+        const reasoningLines = []
+
+        // Text analysis section - only GROQ
+        if (contentModeration.groq) {
+          reasoningLines.push("📖 Analyse du texte")
+          reasoningLines.push(
+            `Statut : ${contentModeration.groq.status === "conforme" ? "✅ Conforme" : "❌ Non conforme"}`,
+          )
+          if (contentModeration.groq.reasoning) {
+            reasoningLines.push(`Détails : ${contentModeration.groq.reasoning}`)
+          }
+          reasoningLines.push(`Insulte détectée : ${contentModeration.groq.is_insult ? "❌ Oui" : "✅ Non"}`)
+          reasoningLines.push("")
+        }
+
+        // Audio analysis section
+        reasoningLines.push("🎶 Analyse audio")
+        reasoningLines.push(
+          `Statut : ${audioModeration.can_publish ? "✅ Autorisé" : "🚫 Bloqué"} ${copyrightAnalysis.music_detected ? "(musique protégée détectée)" : ""}`,
+        )
+
+        if (copyrightAnalysis.music_detected) {
+          if (copyrightAnalysis.title) reasoningLines.push(`Titre : ${copyrightAnalysis.title}`)
+          if (copyrightAnalysis.artist) reasoningLines.push(`Artiste : ${copyrightAnalysis.artist}`)
+          if (copyrightAnalysis.album) reasoningLines.push(`Album : ${copyrightAnalysis.album}`)
+          if (copyrightAnalysis.release_date) reasoningLines.push(`Date de sortie : ${copyrightAnalysis.release_date}`)
+          if (copyrightAnalysis.confidence_score)
+            reasoningLines.push(`Confiance : ${Math.round(copyrightAnalysis.confidence_score * 100)}%`)
+
+          if (audioModeration.copyrighted_segment) {
+            const segment = audioModeration.copyrighted_segment
+            reasoningLines.push(`Segment protégé : ⏱️ ${segment.start_time} → ${segment.end_time}`)
+          }
+
+          if (copyrightAnalysis.strike_risk_level) {
+            const riskEmoji =
+              copyrightAnalysis.strike_risk_level === "critical"
+                ? "⚠️"
+                : copyrightAnalysis.strike_risk_level === "high"
+                  ? "⚠️"
+                  : "⚡"
+            reasoningLines.push(
+              `Niveau de risque : ${riskEmoji} ${copyrightAnalysis.strike_risk_level === "critical" ? "Critique (strike probable)" : copyrightAnalysis.strike_risk_level}`,
+            )
+          }
+        }
+
+        reasoningLines.push("")
+
+        // Final decision section
+        reasoningLines.push("🛑 Décision finale")
+        reasoningLines.push(`Peut publier ? ${audioModeration.can_publish ? "✅ Oui" : "❌ Non"}`)
+        if (audioModeration.automatic_action) {
+          const actionEmoji = audioModeration.automatic_action === "block" ? "🔒" : "✅"
+          const actionText = audioModeration.automatic_action === "block" ? "Blocage immédiat" : "Autorisation"
+          reasoningLines.push(`Action automatique : ${actionEmoji} ${actionText}`)
+        }
+        if (audioModeration.violated_rules?.length > 0) {
+          const rulesWithEmojis = audioModeration.violated_rules.map((rule) => {
+            if (rule.includes("Parodie") || rule.includes("Remix")) return `🎭 ${rule}`
+            if (rule.includes("copyright") || rule.includes("droits")) return `©️ ${rule}`
+            if (rule.includes("harcèlement")) return `⚠️ ${rule}`
+            return rule
+          })
+          reasoningLines.push(`Raisons : ${rulesWithEmojis.join(", ")}`)
+        }
+
+        const reasoning = reasoningLines.join("\n")
 
         setMessages((prev) => [
           ...prev,
@@ -487,11 +568,10 @@ export default function Chat() {
         if (!res.ok) throw new Error("Erreur pendant l'analyse image")
         const data = await res.json()
 
-        const cm = data.content_moderation || {}
-        const groq = cm.groq || {}
-        const status = groq.status || cm.status || "inconnu"
-        const category = groq.category || cm.category || "image"
-        const reasoning = cm.reasoning || "Analyse image terminée"
+        // Utiliser directement la structure JSON retournée par le backend
+        const compatibility = data.youtube_compatibility || {}
+        const status = compatibility.compatible ? "conforme" : "non_conforme"
+        const reasoning = compatibility.commentaire || "Analyse image terminée"
 
         setMessages((prev) => [
           ...prev,
@@ -500,7 +580,7 @@ export default function Chat() {
             isUser: false,
             kind: "analysis",
             status,
-            category,
+            category: "image",
             reasoning,
             payload: data,
             expanded: false,
@@ -523,59 +603,172 @@ export default function Chat() {
   // UI helpers for analysis messages
   const formatAnalysisPlain = useCallback((msg) => {
     const lines = []
+    const audioMod = msg.payload?.audio_moderation
+    const contentMod = msg.payload?.content_moderation
 
-    // Determine overall compatibility
-    const isCompatible = msg.payload?.can_publish !== false && (msg.status || "").toLowerCase() === "conforme"
+    // Content moderation (text analysis) - show only structured format
+    if (contentMod && contentMod.groq) {
+      const groq = contentMod.groq
+      const isCompliant = groq.status === "conforme"
 
-    if (isCompatible) {
-      lines.push("✅ Contenu compatible")
-      lines.push("Votre contenu peut être publié sans problème.")
-    } else {
-      lines.push("❌ Contenu non compatible")
+      lines.push(`${isCompliant ? "✅" : "❌"} Contenu ${isCompliant ? "compatible" : "non compatible"}`)
 
-      // Show why it's not compatible
-      if (msg.reasoning) {
+      if (groq.reasoning) {
         lines.push("")
         lines.push("Raison:")
-        lines.push(msg.reasoning)
+        lines.push(groq.reasoning)
       }
 
-      // Check for copyright issues
-      const copyright = msg.payload?.copyright_analysis || msg.payload?.audio_moderation?.copyright_analysis
-      if (copyright) {
+      if (groq.category && groq.category !== "aucun") {
         lines.push("")
-        lines.push("Problème de droits d'auteur détecté:")
-        lines.push(`• Titre: ${copyright.title || "Inconnu"}`)
-        lines.push(`• Artiste: ${copyright.artist || "Inconnu"}`)
-        if (copyright.strike_risk_level) {
-          lines.push(`• Risque de strike: ${copyright.strike_risk_level}`)
-        }
+        lines.push(`📋 Catégorie: ${groq.category}`)
+      }
 
-        // Show when/where the issue occurs
-        const segment = msg.payload?.audio_moderation?.copyrighted_segment
-        if (segment && (segment.start_time || segment.end_time)) {
-          lines.push(`• Segment problématique: ${segment.start_time || "0s"} - ${segment.end_time || "fin"}`)
+      if (groq.is_insult !== undefined) {
+        lines.push(`🚫 Insulte détectée: ${groq.is_insult ? "Oui" : "Non"}`)
+      }
+
+      return lines.join("\n")
+    }
+
+    // Overall status determination (only for non-text content)
+
+    // Audio moderation
+    if (audioMod) {
+      lines.push("")
+      lines.push("🎧 Analyse audio:")
+      lines.push(`• Statut: ${audioMod.status === "blocked" ? "❌ Bloqué" : "✅ Autorisé"}`)
+      lines.push(`• Publication: ${audioMod.can_publish ? "✅ Autorisée" : "❌ Bloquée"}`)
+
+      // Violated rules
+      if (audioMod.violated_rules && audioMod.violated_rules.length > 0) {
+        lines.push("")
+        lines.push("Règles violées:")
+        audioMod.violated_rules.forEach((rule) => {
+          lines.push(`• ${rule}`)
+        })
+      }
+
+      // Lyrics analysis
+      if (audioMod.lyrics_analysis) {
+        const lyrics = audioMod.lyrics_analysis
+        lines.push("")
+        lines.push("📝 Analyse des paroles:")
+        lines.push(`• Statut: ${lyrics.status === "allowed" ? "✅ Autorisé" : "❌ Bloqué"}`)
+        lines.push(`• Contenu toxique: ${lyrics.toxic ? "❌ Oui" : "✅ Non"}`)
+        if (lyrics.confidence > 0) {
+          lines.push(`• Confiance: ${Math.round(lyrics.confidence * 100)}%`)
+        }
+        if (lyrics.flagged_text) {
+          lines.push(`• Texte problématique: "${lyrics.flagged_text}"`)
+        }
+        if (lyrics.recommendation && lyrics.recommendation !== "Aucune action requise") {
+          lines.push(`• Recommandation: ${lyrics.recommendation}`)
         }
       }
 
-      // Show suggestions
-      const recommendation =
-        copyright?.recommendation || msg.payload?.audio_moderation?.copyright_analysis?.recommendation
-      if (recommendation) {
+      // Copyright analysis
+      if (audioMod.copyright_analysis) {
+        const copyright = audioMod.copyright_analysis
         lines.push("")
-        lines.push("Suggestion:")
-        lines.push(recommendation)
+        lines.push("🎵 Analyse des droits d'auteur:")
+        lines.push(`• Musique détectée: ${copyright.music_detected ? "✅ Oui" : "❌ Non"}`)
+
+        if (copyright.music_detected) {
+          if (copyright.title) {
+            const isParody =
+              copyright.title.toLowerCase().includes("paródia") ||
+              copyright.title.toLowerCase().includes("parody") ||
+              copyright.title.toLowerCase().includes("remix") ||
+              copyright.title.toLowerCase().includes("cover")
+            lines.push(`• Titre: ${copyright.title} ${isParody ? "🎭 (Parodie/Remix)" : ""}`)
+          }
+          if (copyright.artist) lines.push(`• Artiste: ${copyright.artist}`)
+          if (copyright.album) lines.push(`• Album: ${copyright.album}`)
+          if (copyright.release_date) lines.push(`• Date de sortie: ${copyright.release_date}`)
+
+          const isHighRisk =
+            copyright.copyright_protected ||
+            copyright.strike_risk_level === "critical" ||
+            copyright.strike_risk_level === "high" ||
+            copyright.confidence_score >= 0.85
+          lines.push(`• Protégé par droits d'auteur: ${isHighRisk ? "🚨 Oui" : "✅ Non"}`)
+
+          if (copyright.confidence_score !== undefined) {
+            lines.push(`• Score de confiance: ${Math.round(copyright.confidence_score * 100)}%`)
+          }
+
+          if (copyright.strike_risk_level) {
+            const riskEmoji =
+              copyright.strike_risk_level === "critical"
+                ? "🚨"
+                : copyright.strike_risk_level === "high"
+                  ? "⚠️"
+                  : copyright.strike_risk_level === "medium"
+                    ? "⚡"
+                    : "✅"
+            lines.push(`• Risque de strike: ${riskEmoji} ${copyright.strike_risk_level}`)
+          }
+
+          if (copyright.recommendation) {
+            lines.push("")
+            lines.push("💡 Recommandation:")
+            lines.push(copyright.recommendation)
+          }
+        }
+      }
+
+      // Copyrighted segment
+      if (audioMod.copyrighted_segment) {
+        const segment = audioMod.copyrighted_segment
+        lines.push("")
+        lines.push("⏱️ Segment problématique:")
+        lines.push(`• Temps: ${segment.start_time || "0s"} - ${segment.end_time || "fin"}`)
+        if (segment.offset_ms !== undefined) {
+          lines.push(`• Décalage: ${segment.offset_ms}ms`)
+        }
+      }
+
+      // Automatic action
+      if (audioMod.automatic_action) {
+        lines.push("")
+        lines.push(` Action automatique: ${audioMod.automatic_action === "block" ? "❌ Bloqué" : "✅ Autorisé"}`)
+      }
+    }
+
+    // Image analysis - show structured JSON data
+    if (!contentMod && !audioMod && msg.category === "image" && msg.payload?.youtube_compatibility) {
+      const compatibility = msg.payload.youtube_compatibility
+
+      lines.push("🖼️ Analyse d'image:")
+      lines.push(`• Compatible YouTube: ${compatibility.compatible ? "✅ Oui" : "❌ Non"}`)
+
+      if (compatibility.commentaire) {
+        lines.push("")
+        lines.push("📋 Détails de l'analyse:")
+        lines.push(compatibility.commentaire)
+      }
+    }
+    // Fallback for other content types without specific moderation data
+    else if (!contentMod && !audioMod) {
+      const isCompatible = msg.payload?.can_publish !== false && (msg.status || "").toLowerCase() === "conforme"
+
+      if (isCompatible) {
+        lines.push("Votre contenu peut être publié sans problème.")
       } else {
-        lines.push("")
-        lines.push("Suggestions:")
-        lines.push("• Retirez le contenu protégé")
-        lines.push("• Utilisez de la musique libre de droits")
-        lines.push("• Contactez le détenteur des droits pour obtenir une licence")
+        lines.push("❌ Contenu non compatible")
+
+        if (msg.reasoning) {
+          lines.push("")
+          lines.push("Raison:")
+          lines.push(msg.reasoning)
+        }
       }
     }
 
     return lines.join("\n")
   }, [])
+
   const toggleReasoning = useCallback((id) => {
     setMessages((prev) => prev.map((m) => (m.id === id ? { ...m, expanded: !m.expanded } : m)))
   }, [])
@@ -892,31 +1085,28 @@ export default function Chat() {
           ))}
         </div>
 
-        {/* User Profile Display */}
-        {currentUser && (
-          <div
-            className={`flex items-center gap-3 mt-6 p-4 rounded-2xl backdrop-blur-sm
-          ${darkMode ? "bg-gray-800/30 border border-gray-700/50" : "bg-white/60 border border-gray-200"}`}
-          >
-            {currentUser.photo ? (
-              <img
-                src={currentUser.photo || "/images/default-avatar.png"}
-                alt="User profile"
-                className="w-12 h-12 rounded-full object-cover border-2 border-pink-500"
-              />
-            ) : (
-              <div className="w-12 h-12 rounded-full bg-gradient-to-r from-pink-500 to-red-500 flex items-center justify-center text-white font-bold text-lg">
-                {currentUser.username?.charAt(0).toUpperCase()}
-              </div>
-            )}
-            <div>
-              <p className={`font-semibold text-sm ${darkMode ? "text-white" : "text-gray-900"}`}>
-                {currentUser.username}
-              </p>
-              <p className={`text-xs ${darkMode ? "text-gray-400" : "text-gray-500"}`}>Utilisateur ContentGuard</p>
-            </div>
+        {/* User Profile Display - Always show avatar */}
+        <div
+          className={`flex items-center gap-3 mt-6 p-4 rounded-2xl backdrop-blur-sm
+        ${darkMode ? "bg-gray-800/30 border border-gray-700/50" : "bg-white/60 border border-gray-200"}`}
+        >
+          <div className="w-12 h-12 rounded-full overflow-hidden bg-white/10 backdrop-blur-sm flex items-center justify-center border-2 border-pink-500">
+            <img
+              src="/default-avatar1.png"
+              alt="Avatar"
+              className="w-10 h-10 object-cover"
+              onError={() => {
+                console.log("Avatar load error - image not found")
+              }}
+            />
           </div>
-        )}
+          <div>
+            <p className={`font-semibold text-sm ${darkMode ? "text-white" : "text-gray-900"}`}>
+              {currentUser?.username || "Utilisateur"}
+            </p>
+            <p className={`text-xs ${darkMode ? "text-gray-400" : "text-gray-500"}`}>Utilisateur ContentGuard</p>
+          </div>
+        </div>
       </aside>
 
       {/* Main chat panel */}
@@ -935,6 +1125,7 @@ export default function Chat() {
             >
               <Menu size={24} className="text-pink-500" />
             </button>
+
             <Image
               src="/devaktus.png"
               alt="Devaktus Logo"
@@ -977,17 +1168,11 @@ export default function Chat() {
                 className="p-1 rounded-full focus:outline-none focus:ring-2 focus:ring-pink-500"
                 aria-label="Ouvrir le menu du profil"
               >
-                {currentUser.photo ? (
-                  <img
-                    src={currentUser.photo || "/images/default-avatar.png"}
-                    alt="User profile"
-                    className="w-10 h-10 rounded-full object-cover border-2 border-pink-500"
-                  />
-                ) : (
-                  <div className="w-10 h-10 rounded-full bg-gradient-to-r from-pink-500 to-red-500 flex items-center justify-center text-white font-bold text-sm">
-                    {currentUser.username?.charAt(0).toUpperCase()}
-                  </div>
-                )}
+                <img
+                  src="/default-avatar1.png"
+                  alt="User profile"
+                  className="w-10 h-10 rounded-full object-cover border-2 border-pink-500"
+                />
               </button>
 
               {isProfileMenuOpen && (
@@ -999,17 +1184,11 @@ export default function Chat() {
                     className={`flex items-center gap-3 px-4 py-3 border-b
                   ${darkMode ? "border-gray-700" : "border-gray-200"}`}
                   >
-                    {currentUser.photo ? (
-                      <img
-                        src={currentUser.photo || "/images/default-avatar.png"}
-                        alt="User profile"
-                        className="w-10 h-10 rounded-full object-cover border-2 border-pink-500"
-                      />
-                    ) : (
-                      <div className="w-10 h-10 rounded-full bg-gradient-to-r from-pink-500 to-red-500 flex items-center justify-center text-white font-bold text-sm">
-                        {currentUser.username?.charAt(0).toUpperCase()}
-                      </div>
-                    )}
+                    <img
+                      src={currentUser.photo || "/default-avatar1.png"}
+                      alt="User profile"
+                      className="w-10 h-10 rounded-full object-cover border-2 border-pink-500"
+                    />
                     <div>
                       <p className={`font-semibold text-sm ${darkMode ? "text-white" : "text-gray-900"}`}>
                         {currentUser.username}
@@ -1027,7 +1206,7 @@ export default function Chat() {
                     className={`block w-full text-left px-4 py-3 transition-colors text-sm
                     ${darkMode ? "text-white hover:bg-gray-800/50" : "text-gray-900 hover:bg-gray-100"}`}
                   >
-                    Personnaliser
+                    Profile
                   </button>
                   <button
                     onClick={() => {
@@ -1106,9 +1285,199 @@ export default function Chat() {
                         </video>
                       )}
                       {msg.mediaType === "audio" && (
-                        <audio src={msg.mediaUrl} controls className="w-full">
-                          Votre navigateur ne supporte pas la lecture audio.
-                        </audio>
+                        <div className="space-y-4">
+                          <audio src={msg.mediaUrl} controls className="w-full">
+                            Votre navigateur ne supporte pas la lecture audio.
+                          </audio>
+
+                          {msg.moderationData && (
+                            <div className="bg-gray-50 rounded-lg p-4 space-y-4 text-sm">
+                              {/* Content Moderation Section */}
+                              <div className="border-b pb-3">
+                                <h4 className="font-semibold text-gray-800 mb-2">Modération du Contenu</h4>
+                                <div className="grid grid-cols-2 gap-4">
+                                  <div>
+                                    <span className="font-medium">Statut:</span>
+                                    <span
+                                      className={`ml-2 px-2 py-1 rounded text-xs ${
+                                        msg.moderationData.content_moderation?.status === "conforme"
+                                          ? "bg-green-100 text-green-800"
+                                          : "bg-red-100 text-red-800"
+                                      }`}
+                                    >
+                                      {msg.moderationData.content_moderation?.status}
+                                    </span>
+                                  </div>
+                                  <div>
+                                    <span className="font-medium">BERT:</span>
+                                    <span className="ml-2 text-gray-600">
+                                      {msg.moderationData.content_moderation?.bert?.label}(
+                                      {Math.round(msg.moderationData.content_moderation?.bert?.confidence * 100)}%)
+                                    </span>
+                                  </div>
+                                </div>
+                                {msg.moderationData.content_moderation?.groq && (
+                                  <div className="mt-2">
+                                    <span className="font-medium">Analyse Groq:</span>
+                                    <p className="text-gray-600 mt-1">
+                                      {msg.moderationData.content_moderation.groq.reasoning}
+                                    </p>
+                                  </div>
+                                )}
+                              </div>
+
+                              {/* Audio Moderation Section */}
+                              <div>
+                                <h4 className="font-semibold text-gray-800 mb-2">Modération Audio</h4>
+
+                                <div className="space-y-3">
+                                  <div className="flex items-center gap-2">
+                                    <span className="font-medium">Statut:</span>
+                                    <span
+                                      className={`px-2 py-1 rounded text-xs ${
+                                        msg.moderationData.audio_moderation?.status === "blocked"
+                                          ? "bg-red-100 text-red-800"
+                                          : "bg-green-100 text-green-800"
+                                      }`}
+                                    >
+                                      {msg.moderationData.audio_moderation?.status}
+                                    </span>
+                                    <span
+                                      className={`px-2 py-1 rounded text-xs ${
+                                        msg.moderationData.audio_moderation?.can_publish
+                                          ? "bg-green-100 text-green-800"
+                                          : "bg-red-100 text-red-800"
+                                      }`}
+                                    >
+                                      {msg.moderationData.audio_moderation?.can_publish ? "Publiable" : "Non publiable"}
+                                    </span>
+                                  </div>
+
+                                  {msg.moderationData.audio_moderation?.message && (
+                                    <div className="bg-red-50 border border-red-200 rounded p-3">
+                                      <p className="text-red-800 font-medium">
+                                        {msg.moderationData.audio_moderation.message}
+                                      </p>
+                                    </div>
+                                  )}
+
+                                  {msg.moderationData.audio_moderation?.violated_rules?.length > 0 && (
+                                    <div>
+                                      <span className="font-medium">Règles violées:</span>
+                                      <ul className="list-disc list-inside mt-1 text-gray-600">
+                                        {msg.moderationData.audio_moderation.violated_rules.map((rule, index) => (
+                                          <li key={index}>{rule}</li>
+                                        ))}
+                                      </ul>
+                                    </div>
+                                  )}
+
+                                  {/* Copyright Analysis */}
+                                  {msg.moderationData.audio_moderation?.copyright_analysis && (
+                                    <div className="bg-yellow-50 border border-yellow-200 rounded p-3">
+                                      <h5 className="font-medium text-yellow-800 mb-2">Analyse des Droits d'Auteur</h5>
+                                      <div className="space-y-2 text-sm">
+                                        {msg.moderationData.audio_moderation.copyright_analysis.music_detected && (
+                                          <div className="grid grid-cols-2 gap-2">
+                                            <div>
+                                              <span className="font-medium">Titre:</span>{" "}
+                                              {msg.moderationData.audio_moderation.copyright_analysis.title}
+                                            </div>
+                                            <div>
+                                              <span className="font-medium">Artiste:</span>{" "}
+                                              {msg.moderationData.audio_moderation.copyright_analysis.artist}
+                                            </div>
+                                            <div>
+                                              <span className="font-medium">Album:</span>{" "}
+                                              {msg.moderationData.audio_moderation.copyright_analysis.album}
+                                            </div>
+                                            <div>
+                                              <span className="font-medium">Date:</span>{" "}
+                                              {msg.moderationData.audio_moderation.copyright_analysis.release_date}
+                                            </div>
+                                          </div>
+                                        )}
+                                        <div className="flex items-center gap-4">
+                                          <span className="font-medium">Confiance:</span>
+                                          <span className="text-yellow-700">
+                                            {Math.round(
+                                              msg.moderationData.audio_moderation.copyright_analysis.confidence_score *
+                                                100,
+                                            )}
+                                            %
+                                          </span>
+                                          <span className="font-medium">Risque:</span>
+                                          <span
+                                            className={`px-2 py-1 rounded text-xs ${
+                                              msg.moderationData.audio_moderation.copyright_analysis
+                                                .strike_risk_level === "critical"
+                                                ? "bg-red-100 text-red-800"
+                                                : "bg-yellow-100 text-yellow-800"
+                                            }`}
+                                          >
+                                            {msg.moderationData.audio_moderation.copyright_analysis.strike_risk_level}
+                                          </span>
+                                        </div>
+                                        {msg.moderationData.audio_moderation.copyright_analysis.recommendation && (
+                                          <p className="text-yellow-700 italic">
+                                            {msg.moderationData.audio_moderation.copyright_analysis.recommendation}
+                                          </p>
+                                        )}
+                                      </div>
+                                    </div>
+                                  )}
+
+                                  {/* Copyrighted Segment */}
+                                  {msg.moderationData.audio_moderation?.copyrighted_segment && (
+                                    <div className="bg-red-50 border border-red-200 rounded p-3">
+                                      <h5 className="font-medium text-red-800 mb-2">Segment Protégé Détecté</h5>
+                                      <div className="text-sm space-y-1">
+                                        <div>
+                                          <span className="font-medium">Début:</span>{" "}
+                                          {msg.moderationData.audio_moderation.copyrighted_segment.start_time}
+                                        </div>
+                                        <div>
+                                          <span className="font-medium">Fin:</span>{" "}
+                                          {msg.moderationData.audio_moderation.copyrighted_segment.end_time}
+                                        </div>
+                                        <div>
+                                          <span className="font-medium">Durée:</span>{" "}
+                                          {Math.round(
+                                            (msg.moderationData.audio_moderation.copyrighted_segment.end_ms -
+                                              msg.moderationData.audio_moderation.copyrighted_segment.start_ms) /
+                                              1000,
+                                          )}
+                                          s
+                                        </div>
+                                      </div>
+                                    </div>
+                                  )}
+
+                                  {/* Lyrics Analysis */}
+                                  {msg.moderationData.audio_moderation?.lyrics_analysis && (
+                                    <div className="bg-blue-50 border border-blue-200 rounded p-3">
+                                      <h5 className="font-medium text-blue-800 mb-2">Analyse des Paroles</h5>
+                                      <div className="text-sm space-y-1">
+                                        <div>
+                                          <span className="font-medium">Statut:</span>{" "}
+                                          {msg.moderationData.audio_moderation.lyrics_analysis.status}
+                                        </div>
+                                        <div>
+                                          <span className="font-medium">Toxique:</span>{" "}
+                                          {msg.moderationData.audio_moderation.lyrics_analysis.toxic ? "Oui" : "Non"}
+                                        </div>
+                                        <div>
+                                          <span className="font-medium">Recommandation:</span>{" "}
+                                          {msg.moderationData.audio_moderation.lyrics_analysis.recommendation}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                        </div>
                       )}
                     </div>
                   ) : (

@@ -23,7 +23,7 @@ router = APIRouter(tags=["Audio Moderation"])
 @router.post("/moderation/audio", response_model=CombinedAudioModerationResponse)
 async def moderate_audio_file(
     file: UploadFile = File(...),
-    model: str = "llama3-70b-8192",
+    model: str = "llama-3.1-8b-instant",
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -348,14 +348,25 @@ async def moderate_audio_file(
         # Prise en compte du cas où le LLM détecte des paroles protégées (déduction robuste)
         potential_matches = ca_source.get("potential_matches") or []
         originality = ca_source.get("lyrics_originality_score", None)
+        lyrics_confidence = ca_source.get("lyrics_confidence", 0.0)
+        
+        # Logique améliorée pour détecter les paroles protégées
         inferred_lyrics_copy = bool(potential_matches) or (isinstance(originality, (int, float)) and originality < 0.6)
-        lyrics_copyrighted = bool(ca_source.get("lyrics_copyrighted", False) or inferred_lyrics_copy)
+        lyrics_copyrighted = bool(
+            ca_source.get("lyrics_copyrighted", False) or 
+            inferred_lyrics_copy or
+            (isinstance(lyrics_confidence, (int, float)) and lyrics_confidence >= 0.8)
+        )
+        
+        print(f"🔍 Analyse paroles: copyrighted={lyrics_copyrighted}, confidence={lyrics_confidence}, matches={len(potential_matches)}")
+        
         if lyrics_copyrighted:
             la["status"] = "blocked"
+            la["toxic"] = True  # Marquer comme problématique
             la.setdefault("categories", [])
             if "copyright_lyrics" not in la["categories"]:
                 la["categories"].append("copyright_lyrics")
-            la["confidence"] = la.get("confidence", ca_source.get("lyrics_confidence", 0.0))
+            la["confidence"] = max(la.get("confidence", 0), lyrics_confidence)
             # Préférer la recommandation spécifique du LLM si disponible
             la["recommendation"] = ca_source.get(
                 "recommendation",
@@ -367,10 +378,14 @@ async def moderate_audio_file(
         conf = ca.get("confidence_score", 0.0) or 0.0
         reco_text = str(ca.get("recommendation", "")).lower()
         implies_protection = any(kw in reco_text for kw in ["protégée", "copyright", "droits d'auteur", "licensed", "obtenir une licence", "obtenir des licences"]) 
+        
+        # Log pour debug
+        print(f"🔍 Analyse copyright: protected={ca.get('copyright_protected')}, strike={strike}, conf={conf}, implies={implies_protection}")
+        
         high_risk_music = bool(
             ca.get("music_detected") and (
                 ca.get("copyright_protected")
-                or strike in {"high", "critical"}
+                or strike in {"high", "critical"}  # Parodie/remix = risque critique même si pas "protégé"
                 or conf >= 0.9
                 or implies_protection
             )

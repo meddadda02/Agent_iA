@@ -4,7 +4,7 @@ from typing import List, Optional, Union, Dict, Any
 # Représente le texte à modérer	Entrée de /check_content
 class TextInput(BaseModel):
     text: str
-    model: str = "llama3-70b-8192"
+    model: str = "llama-3.3-70b-versatile"
 
 class LanguageDetectionInput(BaseModel):
     text: str
@@ -271,6 +271,7 @@ class ModerationHistoryResponse(BaseModel):
     response: Union[str, Dict[str, Any]]  # Accept string or dict
     toxic: Optional[bool] = None
     date: Optional[str] = None
+    type: Optional[str] = None
 
 # Afficher les modèles Groq disponibles
 class ModelsResponse(BaseModel):

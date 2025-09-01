@@ -574,7 +574,7 @@ class ACRCloudService:
         ).dict()
 
     async def _send_to_acrcloud(self, audio_data: bytes, sample_rate: int = 8000) -> Dict[str, Any]:
-        """Send audio data to ACRCloud API."""
+        """Send audio data to ACRCloud API with retry and extended timeouts."""
         if not self.acrcloud_enabled:
             print(" ACRCloud désactivé - clés API manquantes")
             return {"status": {"msg": "ACRCloud disabled - missing API keys", "code": -1}}
@@ -613,48 +613,69 @@ class ACRCloudService:
             
             url = f"https://{self.host}{http_uri}"
             print(f" Envoi à ACRCloud: {len(audio_data)} bytes vers {url}")
-            print(f" Access key: {self.access_key[:10]}...")
-            print(f" Signature: {signature[:20]}...")
+            print(f" Access key: {(self.access_key or '')[:6]}...")
+            print(f" Signature: {signature[:12]}...")
             print(f" Timestamp: {timestamp}")
-            
-            # Send request with proper headers and timeout
+
             headers = {
                 'accept': 'application/json',
             }
-            
-            response = requests.post(
-                url,
-                files=files,
-                data=data,
-                headers=headers,
-                timeout=30
-            )
-            
-            print(f" Status code: {response.status_code}")
-            print(f" Response headers: {dict(response.headers)}")
-            
-            if response.status_code == 200:
+
+            attempts = 5
+            backoffs = [2, 5, 10, 20]
+            last_err = None
+            for attempt in range(attempts):
                 try:
-                    result = response.json()
-                    print(f" Réponse ACRCloud complète: {result}")
-                    return result
-                except Exception as json_err:
-                    print(f" Erreur décodage JSON: {json_err}")
-                    return {"status": {"msg": f"Invalid JSON response: {response.text}", "code": -2}}
-            else:
-                error_msg = response.text
-                print(f" Erreur HTTP ACRCloud: {response.status_code}")
-                print(f" Réponse complète: {error_msg}")
-                return {"status": {"msg": f"HTTP {response.status_code}: {error_msg}", "code": response.status_code}}
-                
-        except requests.exceptions.RequestException as re:
-            print(f" Erreur de requête ACRCloud: {str(re)}")
-            return {"status": {"msg": f"Request error: {str(re)}", "code": -3}}
-            
+                    response = requests.post(
+                        url,
+                        files=files,
+                        data=data,
+                        headers=headers,
+                        timeout=(30, 300),  # (connect_timeout, read_timeout)
+                    )
+                    print(f" Status code: {response.status_code}")
+                    if response.status_code == 200:
+                        try:
+                            result = response.json()
+                            print(f" Réponse ACRCloud complète: {result}")
+                            return result
+                        except Exception as json_err:
+                            print(f" Erreur décodage JSON: {json_err}")
+                            return {"status": {"msg": f"Invalid JSON response: {response.text}", "code": -2}}
+                    if 500 <= response.status_code < 600:
+                        last_err = f"HTTP {response.status_code}: {response.text[:200]}"
+                        print(f" Erreur serveur ACRCloud, tentative {attempt+1}/{attempts}: {last_err}")
+                        if attempt < attempts - 1:
+                            time.sleep(backoffs[attempt])
+                            continue
+                        return {"status": {"msg": last_err, "code": response.status_code}}
+                    error_msg = response.text
+                    print(f" Erreur HTTP ACRCloud: {response.status_code}")
+                    print(f" Réponse complète: {error_msg[:500]}")
+                    return {"status": {"msg": f"HTTP {response.status_code}: {error_msg}", "code": response.status_code}}
+                except requests.exceptions.Timeout as te:
+                    last_err = f"Timeout: {str(te)}"
+                    print(f" Timeout ACRCloud, tentative {attempt+1}/{attempts}: {last_err}")
+                    if attempt < attempts - 1:
+                        time.sleep(backoffs[attempt])
+                        continue
+                    return {"status": {"msg": f"Request timeout after retries: {last_err}", "code": -3}}
+                except requests.exceptions.RequestException as re:
+                    last_err = str(re)
+                    print(f" Erreur de requête ACRCloud, tentative {attempt+1}/{attempts}: {last_err}")
+                    if attempt < attempts - 1:
+                        time.sleep(backoffs[attempt])
+                        continue
+                    return {"status": {"msg": f"Request error after retries: {last_err}", "code": -3}}
+            # Fallback in case loop exits unexpectedly
+            return {"status": {"msg": f"Unknown error after retries: {last_err}", "code": -1}}
         except Exception as e:
             print(f" Erreur inattendue ACRCloud: {type(e).__name__}: {str(e)}")
-            import traceback
-            print(f" Traceback: {traceback.format_exc()}")
+            try:
+                import traceback
+                print(f" Traceback: {traceback.format_exc()}")
+            except Exception:
+                pass
             return {"status": {"msg": f"Unexpected error: {str(e)}", "code": -1}}
 
     async def _identify_by_chunks(self, audio_path: str, duration: float, transcription: Optional[str]) -> Optional[Dict[str, Any]]:
@@ -673,8 +694,9 @@ class ACRCloudService:
             duration = self._estimate_duration_from_size(audio_path)
 
         chunk_sec = 20.0
-        hop_sec = 15.0  # overlap 5s
+        hop_sec = 60.0  # scan every 60s to reduce requests
         max_scan = min(duration, 300.0)  # scan up to first 5 minutes to keep cost bounded
+        max_chunks = 3  # hard cap on number of chunks
 
         try:
             info = sf.info(audio_path)
@@ -688,7 +710,8 @@ class ACRCloudService:
             return int(max(0, min(sec, duration)) * sr)
 
         start = 0.0
-        while start < max_scan:
+        chunks_tried = 0
+        while start < max_scan and chunks_tried < max_chunks:
             end = min(start + chunk_sec, duration)
             start_frame = sec_to_frame(start)
             frames = sec_to_frame(end) - start_frame
@@ -743,7 +766,7 @@ class ACRCloudService:
                                     "copyright_confidence": score / 100.0,
                                     "detected_genres": genres,
                                     "is_public_domain": is_public_domain,
-                                },
+                                }
                             ).dict()
 
                             # Adjust global offset
@@ -764,10 +787,9 @@ class ACRCloudService:
                     except Exception:
                         pass
             except Exception as e:
-                print(f" Chunk {start:.1f}-{end:.1f}s failed: {e}")
-
+                print(f" Chunk processing failed: {e}")
+            chunks_tried += 1
             start += hop_sec
-
         return None
 
     def _prepare_audio_data(self, file_path: str) -> Optional[bytes]:
@@ -795,31 +817,79 @@ class ACRCloudService:
                 print(f"[WARN] Fichier trop petit: {file_size} bytes (minimum recommandé: {min_file_size} bytes)")
                 return None
             
-            # Lire le fichier en entier (jusqu'à 10MB pour éviter la surcharge mémoire)
-            max_file_size = 10 * 1024 * 1024  # 10MB
-            read_size = min(file_size, max_file_size)
-            
-            with open(file_path, 'rb') as f:
-                # Lire l'en-tête pour vérifier le format
-                header = f.read(4)
-                f.seek(0)  # Revenir au début du fichier
-                
-                # Vérifier les formats audio courants
-                if header.startswith(b'RIFF') or header.startswith(b'ID3') or header.startswith(b'OggS') or header.startswith(b'fLaC'):
-                    print(f"[AUDIO] Format audio détecté: {'WAV' if header.startswith(b'RIFF') else 'MP3' if header.startswith(b'ID3') else 'OGG' if header.startswith(b'OggS') else 'FLAC'}")
-                    audio_data = f.read(read_size)
-                else:
-                    # Essayer de lire quand même le fichier
-                    print("[WARN] Format audio non reconnu, tentative de lecture quand même")
-                    audio_data = f.read(read_size)
-            
-            print(f"[AUDIO] Données audio lues: {len(audio_data)/1024:.1f} KB")
+            # Essayer de normaliser: mono 16 kHz, max ~20s
+            try:
+                import soundfile as sf
+                import numpy as np
+                import io
+                y, sr = sf.read(file_path, dtype='float32', always_2d=False)
+                if y.ndim > 1:
+                    y = np.mean(y, axis=1)
+                target_sr = 16000
+                # Resample with librosa si dispo, sinon sous-échantillonnage simple
+                try:
+                    import librosa
+                    y = librosa.resample(y, orig_sr=sr, target_sr=target_sr)
+                    sr = target_sr
+                except Exception:
+                    if sr != target_sr:
+                        factor = sr // target_sr if sr > target_sr else 1
+                        y = y[::max(1, int(factor))]
+                        sr = int(sr / max(1, int(factor)))
+                max_len = int(20 * sr)
+                if len(y) > max_len:
+                    y = y[:max_len]
+                buf = io.BytesIO()
+                sf.write(buf, y, sr, format='WAV')
+                audio_data = buf.getvalue()
+                print(f"[AUDIO] Données audio normalisées: {len(audio_data)/1024:.1f} KB @ {sr}Hz mono")
+            except Exception as norm_err:
+                print(f"[WARN] Normalisation audio échouée ({norm_err}), tentative avec wave+audioop")
+                # Fallback 2: stdlib wave+audioop (mono 16kHz, ~20s)
+                try:
+                    import wave, audioop, io
+                    with wave.open(file_path, 'rb') as wf:
+                        n_channels = wf.getnchannels()
+                        sampwidth = wf.getsampwidth()
+                        framerate = wf.getframerate()
+                        n_frames = wf.getnframes()
+                        # Limiter à ~20s d'input (avant resample)
+                        max_in_frames = int(min(n_frames, 20 * framerate))
+                        raw = wf.readframes(max_in_frames)
+                        # Convertir en mono
+                        if n_channels > 1:
+                            raw = audioop.tomono(raw, sampwidth, 0.5, 0.5)
+                        # Convertir en 16-bit si besoin
+                        if sampwidth != 2:
+                            raw = audioop.lin2lin(raw, sampwidth, 2)
+                            sampwidth = 2
+                        # Resample en 16kHz si besoin
+                        target_sr = 16000
+                        if framerate != target_sr:
+                            raw, _ = audioop.ratecv(raw, sampwidth, 1, framerate, target_sr, None)
+                            framerate = target_sr
+                        # Écrire WAV en mémoire
+                        out = io.BytesIO()
+                        with wave.open(out, 'wb') as ww:
+                            ww.setnchannels(1)
+                            ww.setsampwidth(2)
+                            ww.setframerate(framerate)
+                            ww.writeframes(raw)
+                        audio_data = out.getvalue()
+                        print(f"[AUDIO] Données audio normalisées (stdlib): {len(audio_data)/1024:.1f} KB @ {framerate}Hz mono")
+                except Exception as std_err:
+                    print(f"[WARN] Fallback stdlib échoué ({std_err}), lecture brute")
+                    # Lecture brute limitée (jusqu'à 5MB)
+                    max_file_size = 5 * 1024 * 1024
+                    read_size = min(file_size, max_file_size)
+                    with open(file_path, 'rb') as f:
+                        audio_data = f.read(read_size)
+                    print(f"[AUDIO] Données audio lues: {len(audio_data)/1024:.1f} KB (brut)")
             
             # Vérifier que les données audio sont suffisantes
             if len(audio_data) < min_file_size:
                 print(f"[ERROR] Données audio insuffisantes: {len(audio_data)} bytes (minimum: {min_file_size} bytes)")
                 return None
-                
             return audio_data
                 
         except Exception as e:

@@ -17,7 +17,7 @@ router = APIRouter(prefix="/video/moderation", tags=["Video Moderation"])
 @router.post("/analyze")
 async def analyze_video_route(
     file: UploadFile = File(...),
-    model: str = "llama3-8b-8192",
+    model: str = "llama-3.3-70b-versatile",
     langue: str = "",  # "", "fr", "en", "ar", "auto"
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
