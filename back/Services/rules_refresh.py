@@ -5,8 +5,6 @@ sys.path.append(os.path.join(os.path.dirname(__file__), "..", "policy-ingestion-
 
 import policy_parser_ai as policy_parser
 
-
-
 def refresh_rules_job():
     logging.info("🔄 Refreshing rules from YouTube...")
     try:

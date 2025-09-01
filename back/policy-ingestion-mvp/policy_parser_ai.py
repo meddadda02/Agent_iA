@@ -10,17 +10,11 @@ from sitemap_crawler import get_catalog
 import os
 from dotenv import load_dotenv
 
-# Load env (optional, you can hardcode if you prefer)
-load_dotenv()
 
-# --- DB connection (kept as you had it) ---
-conn = psycopg2.connect(
-    dbname=os.getenv("dbname"),
-    user="postgres",
-    password=os.getenv("dbpassword"),
-    host="localhost",
-    port=5432
-)
+load_dotenv()
+DATABASE_URL = os.getenv("DATABASE_URL")
+
+conn = psycopg2.connect(DATABASE_URL)
 
 # NLP models
 nlp = spacy.load("en_core_web_sm")

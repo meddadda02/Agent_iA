@@ -36,6 +36,7 @@ export default function Chat() {
   const nextMsgId = useRef(1)
   const audioInputRef = useRef(null)
   const videoInputRef = useRef(null)
+  const imageInputRef = useRef(null)
 
   // Authentication and session management
   useEffect(() => {
@@ -361,7 +362,7 @@ export default function Chat() {
         setIsLoading(false)
       }
     },
-    [token, isLoading, selectedModel]
+    [token, isLoading, selectedModel],
   )
 
   // --- Video upload ---
@@ -426,13 +427,76 @@ export default function Chat() {
         setIsLoading(false)
       }
     },
-    [token, isLoading, selectedModel]
+    [token, isLoading, selectedModel],
+  )
+
+  // --- Image upload ---
+  const handlePickImage = useCallback(() => {
+    imageInputRef.current?.click()
+  }, [])
+
+  const handleUploadImage = useCallback(
+    async (e) => {
+      const file = e.target.files?.[0]
+      e.target.value = ""
+      if (!file || !token || isLoading) return
+
+      try {
+        setIsLoading(true)
+        setMessages((prev) => [
+          ...prev,
+          { id: nextMsgId.current++, kind: "user", isUser: true, text: `Image: ${file.name}` },
+        ])
+
+        const form = new FormData()
+        form.append("file", file)
+        if (selectedModel) form.append("model", selectedModel)
+
+        const res = await fetch(`${BASE_URL}/image/moderation/analyze`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}` },
+          body: form,
+        })
+        if (!res.ok) throw new Error("Erreur pendant l'analyse image")
+        const data = await res.json()
+
+        const cm = data.content_moderation || {}
+        const groq = cm.groq || {}
+        const status = groq.status || cm.status || "inconnu"
+        const category = groq.category || cm.category || "image"
+        const reasoning = groq.reasoning || cm.reasoning || "Analyse image terminée"
+
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: nextMsgId.current++,
+            isUser: false,
+            kind: "analysis",
+            status,
+            category,
+            reasoning,
+            payload: data,
+            expanded: false,
+            showJson: false,
+          },
+        ])
+      } catch (error) {
+        setMessages((prev) => [
+          ...prev,
+          { id: nextMsgId.current++, isUser: false, kind: "error", text: error?.message || "Erreur image" },
+        ])
+        console.error(error)
+      } finally {
+        setIsLoading(false)
+      }
+    },
+    [token, isLoading, selectedModel],
   )
 
   // UI helpers for analysis messages
   const formatAnalysisPlain = useCallback((msg) => {
     const lines = []
-    const cap = (s) => (s ? (s[0].toUpperCase() + s.slice(1)) : "")
+    const cap = (s) => (s ? s[0].toUpperCase() + s.slice(1) : "")
     const safe = (v, d = "-") => (v === null || v === undefined || v === "" ? d : v)
 
     // Primary moderation summary
@@ -445,7 +509,7 @@ export default function Chat() {
     const am = msg.payload?.audio_moderation
     if (am) {
       lines.push("")
-      lines.push(`Audio: ${am.status === 'blocked' ? 'Bloqué' : 'Autorisé'}`)
+      lines.push(`Audio: ${am.status === "blocked" ? "Bloqué" : "Autorisé"}`)
       lines.push(am.can_publish === false ? "Publication non autorisée" : "Publication possible")
       if (am.message) lines.push(am.message)
       if (Array.isArray(am.violated_rules) && am.violated_rules.length) {
@@ -459,7 +523,10 @@ export default function Chat() {
         lines.push(`Artiste: ${safe(ca.artist)}`)
         lines.push(`Album: ${safe(ca.album)}`)
         lines.push(`Sortie: ${safe(ca.release_date)}`)
-        const confPct = typeof ca.confidence_score === 'number' ? `${Math.round(ca.confidence_score * 100)}%` : safe(ca.confidence_score)
+        const confPct =
+          typeof ca.confidence_score === "number"
+            ? `${Math.round(ca.confidence_score * 100)}%`
+            : safe(ca.confidence_score)
         lines.push(`Confiance: ${confPct}`)
         lines.push(`Risque de strike: ${safe(ca.strike_risk_level)}`)
         if (ca.recommendation) lines.push(ca.recommendation)
@@ -467,7 +534,7 @@ export default function Chat() {
       const seg = am.copyrighted_segment
       if (seg && (seg.start_time || seg.end_time)) {
         lines.push("Segment protégé")
-        const offsetStr = typeof seg.offset_ms === 'number' ? ` (offset ${Math.round(seg.offset_ms / 1000)}s)` : ''
+        const offsetStr = typeof seg.offset_ms === "number" ? ` (offset ${Math.round(seg.offset_ms / 1000)}s)` : ""
         lines.push(`De ${safe(seg.start_time)} à ${safe(seg.end_time)}${offsetStr}`)
       }
     }
@@ -476,7 +543,7 @@ export default function Chat() {
     const vrep = msg.payload?.report
     if (vrep) {
       lines.push("")
-      const canPub = msg.payload?.can_publish === false ? 'Bloquée' : 'Autorisée'
+      const canPub = msg.payload?.can_publish === false ? "Bloquée" : "Autorisée"
       lines.push(`Vidéo: ${canPub}`)
       lines.push(msg.payload?.can_publish === false ? "Publication non autorisée" : "Publication possible")
       if (msg.payload?.copyright_warning?.message) {
@@ -493,10 +560,41 @@ export default function Chat() {
         lines.push(`Artiste: ${safe(vca.artist)}`)
         lines.push(`Album: ${safe(vca.album)}`)
         lines.push(`Sortie: ${safe(vca.release_date)}`)
-        const confPct = typeof vca.confidence_score === 'number' ? `${Math.round(vca.confidence_score * 100)}%` : safe(vca.confidence_score)
+        const confPct =
+          typeof vca.confidence_score === "number"
+            ? `${Math.round(vca.confidence_score * 100)}%`
+            : safe(vca.confidence_score)
         lines.push(`Confiance: ${confPct}`)
         lines.push(`Risque de strike: ${safe(vca.strike_risk_level)}`)
         if (vca.recommendation) lines.push(vca.recommendation)
+      }
+    }
+
+    // Image block (if present)
+    const irep = msg.payload?.report
+    if (irep) {
+      lines.push("")
+      const canPub = msg.payload?.can_publish === false ? "Bloquée" : "Autorisée"
+      lines.push(`Image: ${canPub}`)
+      lines.push(msg.payload?.can_publish === false ? "Publication non autorisée" : "Publication possible")
+      if (irep.content_moderation?.groq?.reasoning && !msg.reasoning) {
+        // If no top-level reasoning, show image's reasoning
+        lines.push(irep.content_moderation.groq.reasoning)
+      }
+      const ica = msg.payload?.copyright_analysis
+      if (ica) {
+        lines.push("Détails piste détectée")
+        lines.push(`Titre: ${safe(ica.title)}`)
+        lines.push(`Artiste: ${safe(ica.artist)}`)
+        lines.push(`Album: ${safe(ica.album)}`)
+        lines.push(`Sortie: ${safe(ica.release_date)}`)
+        const confPct =
+          typeof ica.confidence_score === "number"
+            ? `${Math.round(ica.confidence_score * 100)}%`
+            : safe(ica.confidence_score)
+        lines.push(`Confiance: ${confPct}`)
+        lines.push(`Risque de strike: ${safe(ica.strike_risk_level)}`)
+        if (ica.recommendation) lines.push(ica.recommendation)
       }
     }
 
@@ -557,8 +655,8 @@ export default function Chat() {
         {/* New Chat Button */}
         <button
           onClick={startNewChat}
-          className="w-full flex items-center justify-center gap-3 px-6 py-4 mb-6 rounded-full font-semibold bg-gradient-to-r from-pink-500 to-red-500 hover:brightness-110 text-white transition-all duration-200 shadow-lg hover:shadow-xl transform hover:scale-[1.02]"
-          aria-label="Nouveau chat"
+          className={`w-full flex items-center justify-center gap-3 px-6 py-4 mb-6 rounded-full font-semibold bg-gradient-to-r from-pink-500 to-red-500 hover:brightness-110 text-white transition-all duration-200 shadow-lg hover:shadow-xl transform hover:scale-[1.02]`}
+          aria-label="Nouvelle Analyse"
         >
           <MessageSquare size={20} /> Nouvelle Analyse
         </button>
@@ -851,7 +949,7 @@ export default function Chat() {
             if (msg.kind === "user") {
               return (
                 <div
-                  key={`${msg.id ?? 'm'}-${idx}`}
+                  key={`${msg.id ?? "m"}-${idx}`}
                   className="max-w-4xl px-6 py-4 rounded-3xl whitespace-pre-wrap break-words shadow-lg transition-all duration-200 bg-gradient-to-r from-pink-500 to-red-500 text-white self-end ml-auto"
                 >
                   {msg.text}
@@ -863,7 +961,7 @@ export default function Chat() {
             if (msg.kind === "error") {
               return (
                 <div
-                  key={`${msg.id ?? 'm'}-${idx}`}
+                  key={`${msg.id ?? "m"}-${idx}`}
                   className={`max-w-4xl px-6 py-4 rounded-3xl shadow-lg self-start border ${
                     darkMode ? "bg-gray-800/30 text-red-300 border-red-800/50" : "bg-red-50 text-red-700 border-red-200"
                   }`}
@@ -880,7 +978,7 @@ export default function Chat() {
               const plain = formatAnalysisPlain(msg)
               return (
                 <div
-                  key={`${msg.id ?? 'm'}-${idx}`}
+                  key={`${msg.id ?? "m"}-${idx}`}
                   className={`max-w-4xl px-6 py-5 rounded-3xl self-start shadow-lg border backdrop-blur-sm ${
                     darkMode ? "bg-gray-800/30 border-gray-700/50 text-white" : "bg-white border-gray-200 text-gray-900"
                   }`}
@@ -918,7 +1016,7 @@ export default function Chat() {
             // Fallback generic
             return (
               <div
-                key={`${msg.id ?? 'm'}-${idx}`}
+                key={`${msg.id ?? "m"}-${idx}`}
                 className={`max-w-4xl px-6 py-4 rounded-3xl whitespace-pre-wrap break-words shadow-lg self-start border ${
                   darkMode ? "bg-gray-800/30 text-white border-gray-700/50" : "bg-white text-gray-900 border-gray-200"
                 }`}
@@ -959,13 +1057,9 @@ export default function Chat() {
                   : "border-gray-300 bg-white/80 text-gray-900 placeholder-gray-500"
               }`}
             />
-            <input
-              ref={audioInputRef}
-              type="file"
-              accept="audio/*"
-              className="hidden"
-              onChange={handleUploadAudio}
-            />
+            <input ref={audioInputRef} type="file" accept="audio/*" className="hidden" onChange={handleUploadAudio} />
+            <input ref={imageInputRef} type="file" accept="image/*" className="hidden" onChange={handleUploadImage} />
+            <input ref={videoInputRef} type="file" accept="video/*" className="hidden" onChange={handleUploadVideo} />
             <button
               type="button"
               onClick={handlePickAudio}
@@ -978,6 +1072,32 @@ export default function Chat() {
               title="Analyser un fichier audio"
             >
               Audio
+            </button>
+            <button
+              type="button"
+              onClick={handlePickImage}
+              disabled={isLoading}
+              className={`rounded-full px-4 py-3 font-semibold border transition-colors hidden sm:block ${
+                darkMode
+                  ? "border-gray-600 text-gray-200 hover:bg-gray-700"
+                  : "border-gray-300 text-gray-700 hover:bg-gray-100"
+              }`}
+              title="Analyser une image"
+            >
+              Image
+            </button>
+            <button
+              type="button"
+              onClick={handlePickVideo}
+              disabled={isLoading}
+              className={`rounded-full px-4 py-3 font-semibold border transition-colors hidden sm:block ${
+                darkMode
+                  ? "border-gray-600 text-gray-200 hover:bg-gray-700"
+                  : "border-gray-300 text-gray-700 hover:bg-gray-100"
+              }`}
+              title="Analyser une vidéo"
+            >
+              Vidéo
             </button>
             <button
               type="submit"
