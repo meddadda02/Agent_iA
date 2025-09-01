@@ -53,3 +53,9 @@ CREATE TABLE rules (
 ACRCLOUD_ACCESS_KEY
 ACRCLOUD_ACCESS_SECRET
 ACRCLOUD_HOST
+
+
+# Tesseract (OCR)
+- Install Tesseract
+- add it as a env variable
+- the path should look like this C:\Program Files\Tesseract-OCR\tesseract.exe
