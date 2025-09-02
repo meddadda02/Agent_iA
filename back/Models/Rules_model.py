@@ -1,20 +1,20 @@
-from pydantic import BaseModel
-from typing import List, Optional
-from datetime import datetime
+from sqlalchemy import Column, Integer, String, Text, TIMESTAMP, ARRAY
+from config import Base, get_db
 
 
-class Rules(BaseModel):
-    id: str
-    title: str
-    link: Optional[str] = None
-    content: Optional[str] = None
-    published_at: Optional[datetime] = None
-    source: Optional[str] = None
-    hash: Optional[str] = None
-    created_at: Optional[datetime] = None
-    scope: Optional[str] = None
-    prohibits: Optional[List[str]] = []
-    allows_if: Optional[List[str]] = []
-    examples_positive: Optional[List[str]] = []
-    examples_negative: Optional[List[str]] = []
-    keywords: Optional[List[str]] = []
+class Rules(Base):
+    __tablename__ = "rules"
+
+    id = Column(Integer, primary_key=True, index=True)
+    title = Column(Text, nullable=False)
+    link = Column(Text, nullable=True)
+    content = Column(Text, nullable=True)
+    published_at = Column(TIMESTAMP, nullable=True)
+    source = Column(Text, nullable=True)
+    hash = Column(Text, unique=True, nullable=False)
+    scope = Column(ARRAY(Text), default=[])
+    prohibits = Column(ARRAY(Text), default=[])
+    allows_if = Column(ARRAY(Text), default=[])
+    examples_positive = Column(ARRAY(Text), default=[])
+    examples_negative = Column(ARRAY(Text), default=[])
+    keywords = Column(Text, nullable=True)
