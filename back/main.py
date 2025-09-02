@@ -7,6 +7,14 @@ from config import engine, Base
 import Models.analyzer_model as Analyzer
 import Models.user_model as User
 # import Models.admin_model as Admin  # <-- supprimer
+# 🔹 Pour OCR avec pytesseract
+import pytesseract
+
+# Définir le chemin vers l’exécutable Tesseract (Windows)
+pytesseract.pytesseract.tesseract_cmd = r"C:\Users\salma\AppData\Local\Programs\Tesseract-OCR\tesseract.exe"
+
+# 🔹 Pour YOLO et le traitement OCR + modération
+from Services.yolo_service import analyze_with_yolo, ocr_extract_text, ModerationService
 
 # Import des routeurs
 from Routers.user_route import router as user_router
@@ -85,4 +93,3 @@ def rules_status():
         "jobs": [job.id for job in jobs],
         "next_run_time": str(jobs[0].next_run_time) if jobs else None
     }
-
