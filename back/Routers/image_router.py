@@ -1,11 +1,12 @@
+import io
 from fastapi import APIRouter, UploadFile, File, HTTPException, Depends, status
 from sqlalchemy.orm import Session
 from typing import List
 import os
 import json
 from datetime import datetime
-
-from Services.yolo_service import analyze_with_yolo
+from PIL import Image, ImageEnhance
+from Services.yolo_service import analyze_with_yolo, ocr_extract_text, moderate_text
 from Services.llm_service import check_youtube_compatibility
 
 from dependencies import get_current_user
@@ -39,29 +40,77 @@ async def analyze_image(
     if not file.content_type.startswith("image/"):
         raise HTTPException(status_code=400, detail="Le fichier doit être une image.")
 
-    image_bytes = await file.read()
-
-    # Sauvegarde locale de l'image
-    timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-    filename = f"{timestamp}_{file.filename}"
-    uploads_dir = "uploads"
-    os.makedirs(uploads_dir, exist_ok=True)
-    file_path = os.path.join(uploads_dir, filename)
-
     try:
-        with open(file_path, "wb") as image_file:
-            image_file.write(image_bytes)
+        # 1️⃣ Lire et sauvegarder l'image
+        image_bytes = await file.read()
+        image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
 
-        detections = analyze_with_yolo(image_bytes)
-        compatibility_phrase = check_youtube_compatibility(detections)
+        timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+        filename = f"{timestamp}_{file.filename}"
+        uploads_dir = "uploads"
+        os.makedirs(uploads_dir, exist_ok=True)
+        file_path = os.path.join(uploads_dir, filename)
+        image.save(file_path)
 
-        # Convertir la réponse en JSON string pour stockage
-        compatibility_json = json.dumps(compatibility_phrase)
+        # 2️⃣ Détection d'objets avec YOLO
+        detections = analyze_with_yolo(image_bytes) or []
 
+        # 3️⃣ OCR global + OCR sur chaque objet
+        ocr_texts = []
+        full_text = ocr_extract_text(image_bytes)
+        if full_text:
+            ocr_texts.append(full_text)
+
+        for det in detections:
+            try:
+                x1, y1, x2, y2 = map(int, det["bbox"])
+                cropped = image.crop((x1, y1, x2, y2))
+                buf = io.BytesIO()
+                cropped.save(buf, format="JPEG")
+                crop_bytes = buf.getvalue()
+                text_crop = ocr_extract_text(crop_bytes)
+                if text_crop:
+                    ocr_texts.append(text_crop)
+            except Exception as crop_err:
+                print(f"Erreur OCR sur crop: {crop_err}")
+
+        combined_text = " ".join(ocr_texts).strip()
+        print("Texte détecté par OCR :", combined_text or "Aucun texte détecté")
+
+        # 4️⃣ Modération texte
+        text_moderation = await moderate_text(combined_text or "")
+
+        # 5️⃣ Vérification compatibilité YouTube via LLM
+        youtube_compatibility = check_youtube_compatibility(
+            detections=detections,
+            ocr_text=combined_text
+        )
+
+        if not isinstance(youtube_compatibility, dict):
+            youtube_compatibility = {
+                "compatible": None,
+                "commentaire": "Erreur LLM ou réponse invalide"
+            }
+
+        # 6️⃣ Fusion compatibilité finale
+        if (youtube_compatibility.get("compatible") is False or
+            text_moderation.get("compatible") is False):
+            youtube_compatibility["compatible"] = False
+            youtube_compatibility["commentaire"] = (
+                youtube_compatibility.get("commentaire", "")
+                + " / Texte ou objet non conforme"
+            )
+
+        # 7️⃣ Sauvegarde en base
         new_analysis = Analyzer(
             user_id=current_user.id,
             question=filename,
-            response=compatibility_json,
+            response=json.dumps({
+                "objects": detections,
+                "ocr_text": combined_text,
+                "text_moderation": text_moderation,
+                "youtube_compatibility": youtube_compatibility
+            }, ensure_ascii=False),
             toxic=False,
             type="image"
         )
@@ -69,8 +118,12 @@ async def analyze_image(
         db.commit()
         db.refresh(new_analysis)
 
+        # 8️⃣ Réponse finale
         return {
-            "youtube_compatibility": compatibility_phrase,
+            "objects": detections,
+            "ocr_text": combined_text,
+            "text_moderation": text_moderation,
+            "youtube_compatibility": youtube_compatibility,
             "analysis_id": new_analysis.id,
             "date": new_analysis.date.isoformat() if new_analysis.date else None,
             "filename": filename

@@ -55,7 +55,7 @@ export default function Login() {
           Accept: "application/json",
         },
         body: new URLSearchParams({
-          username: formData.username, // fastapi attend `username`, pas `email`
+          username: formData.username,
           password: formData.password,
         }),
       })
@@ -69,8 +69,24 @@ export default function Login() {
       console.log("Token reçu:", data.access_token)
 
       localStorage.setItem("token", data.access_token)
-      alert("Connexion réussie !")
-      router.push("/chat") // ou toute autre route protégée
+
+      // Décode la payload du JWT (sans validation, juste pour lire le rôle)
+      function parseJwt(token) {
+        try {
+          return JSON.parse(atob(token.split('.')[1]))
+        } catch (e) {
+          return null
+        }
+      }
+
+      const payload = parseJwt(data.access_token)
+      console.log("Payload token:", payload)
+
+      if (payload && payload.role === "admin") {
+        router.push("/admin")
+      } else {
+        router.push("/chat")
+      }
 
     } catch (err) {
       setError(err.message)
