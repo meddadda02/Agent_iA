@@ -1,5 +1,9 @@
+from ast import List
 from multiprocessing import get_context
 import os
+from datetime import date, datetime, timedelta
+from pyparsing import Dict
+from sqlalchemy import cast, Date
 from fastapi import APIRouter, Depends, HTTPException, Form, Request, UploadFile
 from fastapi.params import File
 from sqlalchemy import func
@@ -10,6 +14,7 @@ from Services.llm_service import LLMService
 from Services.user_services import FileService, UserService
 from Shemas.user_shemas import UserOut, ResponseSchema
 from Models.user_model import User
+from Models.Rules_model import Rules
 from dependencies import get_current_admin, get_db
 from passlib.context import CryptContext
 from Services.moderation_service import ModerationService
@@ -187,6 +192,140 @@ def delete_user(
     db.delete(user)
     db.commit()
     return {"detail": "User deleted successfully"}
+
+@router.get("/stats/users/count")
+def get_total_users(db: Session = Depends(get_db), admin: User = Depends(get_current_admin)):
+    total_users = db.query(func.count(User.id)).scalar() or 0
+    return {"total_users": total_users}
+
+@router.get("/moderation/analyses/global-type-distribution")
+def get_global_analysis_type_distribution(
+    db: Session = Depends(get_db),
+    admin: User = Depends(get_current_admin)
+):
+    """
+    Retourne la distribution globale des analyses par type (texte, image, audio, vidéo)
+    pour tous les utilisateurs.
+    """
+
+    # Fetch distribution from DB
+    results = (
+        db.query(
+            Analyzer.type,
+            func.count(Analyzer.id).label("count")
+        )
+        .group_by(Analyzer.type)
+        .order_by(func.count(Analyzer.id).desc())
+        .all()
+    )
+
+    # Normalize to include all types
+    all_types = ["text", "image", "audio", "video"]
+
+    distribution = {t: 0 for t in all_types}
+    for r in results:
+        distribution[r.type] = r.count
+
+    return {
+        "global_type_distribution": [
+            {"type": t, "count": distribution[t]} for t in all_types
+        ]
+    }
+
+@router.get("/moderation/analyses/count/today")
+def get_total_analyses_today(db: Session = Depends(get_db), admin: User = Depends(get_current_admin)):
+    today = date.today()
+    total_analyses = (
+        db.query(func.count(Analyzer.id))
+        .filter(cast(Analyzer.date, Date) == today)
+        .scalar()
+        or 0
+    )
+    return {"total_analyses_today": total_analyses}
+
+
+
+@router.get("/moderation/analyses/stats/weekly")
+def get_analyses_per_day_this_week(
+    db: Session = Depends(get_db),
+    admin: User = Depends(get_current_admin)
+):
+    today = date.today()
+    start_of_week = today - timedelta(days=today.weekday())  # Monday of current week
+
+    # Query count of analyses grouped by day
+    results = (
+        db.query(
+            cast(Analyzer.date, Date).label("day"),
+            func.count(Analyzer.id).label("analyses")
+        )
+        .filter(cast(Analyzer.date, Date) >= start_of_week)
+        .group_by(cast(Analyzer.date, Date))
+        .order_by(cast(Analyzer.date, Date))
+        .all()
+    )
+
+    # Fill missing days from Monday to today
+    stats = []
+    days_count = (today - start_of_week).days + 1  # number of days to include
+    for i in range(days_count):
+        current_day = start_of_week + timedelta(days=i)
+        found = next((r for r in results if r.day == current_day), None)
+        stats.append({
+            "day": current_day.strftime("%A"),  # Day name
+            "analyses": found.analyses if found else 0
+        })
+
+    return stats
+
+
+@router.get("/moderation/analyses/toxic-trend/weekly")
+def get_weekly_toxic_trend(db: Session = Depends(get_db), admin: User = Depends(get_current_admin)):
+    """
+    Retourne la tendance hebdomadaire du contenu toxique.
+    """
+    today = datetime.utcnow().date()
+    trend: List[Dict] = []
+
+    for i in range(6, -1, -1):  # last 7 days
+        day = today - timedelta(days=i)
+        
+        total_analyses = db.query(func.count(Analyzer.id))\
+            .filter(func.date(Analyzer.date) == day)\
+            .scalar() or 0
+
+        total_toxic = db.query(func.count(Analyzer.id))\
+            .filter(func.date(Analyzer.date) == day, Analyzer.toxic == True)\
+            .scalar() or 0
+
+        percent_toxic = (total_toxic / total_analyses * 100) if total_analyses > 0 else 0
+
+        trend.append({
+            "day": day.strftime("%Y-%m-%d"),
+            "percent_toxic": round(percent_toxic, 2)
+        })
+
+    return {"weekly_toxic_trend": trend}
+
+@router.get("/moderation/analyses/toxic-percentage")
+def get_toxic_content_percentage(db: Session = Depends(get_db), admin: User = Depends(get_current_admin)):
+    total_analyses = db.query(func.count(Analyzer.id)).scalar() or 0
+    total_toxic = db.query(func.count(Analyzer.id)).filter(Analyzer.toxic == True).scalar() or 0
+    percent_toxic = (total_toxic / total_analyses * 100) if total_analyses > 0 else 0
+    return round(percent_toxic, 2)
+
+
+@router.get("/users/active/count")
+def get_active_users_count(db: Session = Depends(get_db), admin: User = Depends(get_current_admin)):
+    active_users = (
+        db.query(func.count(func.distinct(Analyzer.user_id)))
+        .filter(Analyzer.user_id != None)
+        .scalar()
+        or 0
+    )
+    return {"active_users": active_users}
+
+
 #TEXTE
 @router.get("/moderation/models", response_model=ModelsResponse)
 async def admin_get_text_models(
@@ -202,34 +341,41 @@ async def admin_get_image_models(current_user: User = Depends(get_current_admin)
     """
     return LLMService.get_available_models()
 
+
 @router.get("/moderation/rules")
 async def admin_get_rules(
-    current_admin: User = Depends(get_current_admin)
+    current_admin: User = Depends(get_current_admin), 
+    db: Session = Depends(get_db)
 ):
     """Accès aux règles de modération (admin only)"""
-    return ModerationService.get_rules()
+    rules = db.query(Rules).all()
+    return rules
 
-@router.get("/moderation/history/{user_id}", response_model=list[ModerationHistoryResponse])
+@router.get("/moderation/history/{user_id}")
 async def admin_get_user_moderation_history(
     user_id: int,
     current_admin: User = Depends(get_current_admin),
     db: Session = Depends(get_db)
 ):
-    """Accès à l'historique de modération d'un utilisateur spécifique (admin only)"""
-    analyses = db.query(Analyzer).filter(Analyzer.user_id == user_id).order_by(Analyzer.date.desc()).all()
+    """
+    Accès à l'historique de modération d'un utilisateur spécifique (admin only)
+    -> Retourne uniquement l'id et le type (image, texte, video, audio)
+    """
+    analyses = (
+        db.query(Analyzer)
+        .filter(Analyzer.user_id == user_id)
+        .order_by(Analyzer.date.desc())
+        .all()
+    )
 
     response_data = []
     for analysis in analyses:
-        response_data.append(
-            ModerationHistoryResponse(
-                id=analysis.id,
-                question=analysis.question,
-                response=analysis.response,
-                toxic=analysis.toxic,
-                date=analysis.date.isoformat() if analysis.date else None
-            )
-        )
+        response_data.append({
+            "id": analysis.id,
+            "type": analysis.type  # Assumes Analyzer has a "type" column
+        })
     return response_data
+
 
 @router.get("/moderation/history/{user_id}/{analysis_id}", response_model=ModerationHistoryResponse)
 async def admin_get_specific_moderation_analysis(
@@ -264,7 +410,7 @@ async def admin_get_specific_moderation_analysis(
 
 
 
-@router.get("/admin/moderation/volume-by-date")
+@router.get("/moderation/volume-by-date")
 def get_volume_analyses_by_date(db: Session = Depends(get_db), admin: User = Depends(get_current_admin)):
     """
     Récupère le nombre total d'analyses effectuées regroupées par date.
@@ -282,7 +428,7 @@ def get_volume_analyses_by_date(db: Session = Depends(get_db), admin: User = Dep
     )
     return [{"date": r.date.isoformat(), "count": r.count} for r in results]
 
-@router.get("/admin/moderation/top-users")
+@router.get("/moderation/top-users")
 def get_top_users_by_analysis_count(db: Session = Depends(get_db), admin: User = Depends(get_current_admin)):
     """
     Retourne la liste des utilisateurs ayant effectué le plus d'analyses.
@@ -306,7 +452,7 @@ def get_top_users_by_analysis_count(db: Session = Depends(get_db), admin: User =
         for r in results
     ]
 
-@router.get("/admin/moderation/count-by-type")
+@router.get("/moderation/count-by-type")
 def get_analysis_count_by_type(db: Session = Depends(get_db), admin: User = Depends(get_current_admin)):
     """
     Récupère la répartition du nombre d'analyses effectuées par type (texte, image, audio, video).
@@ -324,7 +470,7 @@ def get_analysis_count_by_type(db: Session = Depends(get_db), admin: User = Depe
     )
     return [{"type": r.type, "count": r.count} for r in results]
 
-@router.get("/admin/moderation/average-toxicity-by-user")
+@router.get("/moderation/average-toxicity-by-user")
 def get_avg_toxicity_by_user(db: Session = Depends(get_db), admin: User = Depends(get_current_admin)):
     """
     Calcule la toxicité moyenne des contenus modérés par utilisateur.
@@ -348,6 +494,65 @@ def get_avg_toxicity_by_user(db: Session = Depends(get_db), admin: User = Depend
         {"user_id": r.id, "username": r.username, "average_toxicity": float(r.avg_toxicity or 0)}
         for r in results
     ]
+# Create a new rule
+@router.post("/moderation/rules", response_model=None)
+def create_rule(
+    title: str = Form(...),
+    content: str = Form(None),
+    link: str = Form(None),
+    source: str = Form(None),
+    db: Session = Depends(get_db),
+    admin: User = Depends(get_current_admin)
+):
+    rule = Rules(
+        title=title,
+        content=content,
+        link=link,
+        source=source,
+        published_at=datetime.utcnow()
+    )
+    db.add(rule)
+    db.commit()
+    db.refresh(rule)
+    return rule  # raw SQLAlchemy object
+# Update a rule
+@router.put("/moderation/rules/{rule_id}", response_model=None)
+def update_rule(
+    rule_id: int,
+    title: str = Form(None),
+    content: str = Form(None),
+    link: str = Form(None),
+    source: str = Form(None),
+    db: Session = Depends(get_db),
+    admin: User = Depends(get_current_admin)
+):
+    rule = db.query(Rules).filter(Rules.id == rule_id).first()
+    if not rule:
+        raise HTTPException(status_code=404, detail="Rule not found")
+
+    if title: rule.title = title
+    if content: rule.content = content
+    if link: rule.link = link
+    if source: rule.source = source
+
+    db.commit()
+    db.refresh(rule)
+    return rule
+
+# Delete a rule
+@router.delete("/moderation/rules/{rule_id}", response_model=None)
+def delete_rule(
+    rule_id: int,
+    db: Session = Depends(get_db),
+    admin: User = Depends(get_current_admin)
+):
+    rule = db.query(Rules).filter(Rules.id == rule_id).first()
+    if not rule:
+        raise HTTPException(status_code=404, detail="Rule not found")
+
+    db.delete(rule)
+    db.commit()
+    return {"detail": "Rule deleted successfully"}
 
 #from Services.rules_refresh import refresh_rules_job
 #@router.post("/refresh-rules")

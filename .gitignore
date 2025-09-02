@@ -9,3 +9,4 @@ __pycache__/
 venv310/
 .requirements.txt
 node_modules/
+yolov8x.pt
