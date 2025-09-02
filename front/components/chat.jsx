@@ -137,13 +137,14 @@ export default function Chat() {
     try {
       const res = await fetch(`${BASE_URL}/moderation/history`, {
         headers: { Authorization: `Bearer ${token}` },
-      }).catch((err) => {
-        console.error("Network error:", err)
-        throw new Error("Erreur de connexion au serveur")
+      }).catch(err => {
+        console.error("Network error:", err);
+        throw new Error("Erreur de connexion au serveur");
       })
       if (!res.ok) throw new Error(`Erreur chargement historique (${res.status})`)
       const data = await res.json()
       setHistory(data || [])
+      
     } catch (error) {
       console.error("Erreur fetchHistory:", error)
       setHistory([])
@@ -340,9 +341,9 @@ export default function Chat() {
           method: "POST",
           headers: { Authorization: `Bearer ${token}` },
           body: form,
-        }).catch((err) => {
-          console.error("Network error:", err)
-          throw new Error("Erreur de connexion au serveur - Vérifiez que le backend est démarré")
+        }).catch(err => {
+          console.error("Network error:", err);
+          throw new Error("Erreur de connexion au serveur - Vérifiez que le backend est démarré");
         })
         if (!res.ok) throw new Error(`Erreur pendant l'analyse audio (${res.status})`)
         const data = await res.json()
@@ -350,64 +351,53 @@ export default function Chat() {
         // Keep audio response structure simple and independent
         const audioModeration = data.audio_moderation || {}
         const contentModeration = data.content_moderation || {}
-
+        
         // Base status and reasoning on audio-specific information
         const lyricsAnalysis = audioModeration.lyrics_analysis || {}
         const copyrightAnalysis = audioModeration.copyright_analysis || {}
-
+        
         const status = audioModeration.can_publish ? "conforme" : "bloqué"
         const category = "audio"
-
+        
         // Build detailed structured reasoning
         const reasoningLines = []
-
+        
         // Text analysis section - only GROQ
         if (contentModeration.groq) {
           reasoningLines.push("📖 Analyse du texte")
-          reasoningLines.push(
-            `Statut : ${contentModeration.groq.status === "conforme" ? "✅ Conforme" : "❌ Non conforme"}`,
-          )
+          reasoningLines.push(`Statut : ${contentModeration.groq.status === "conforme" ? "✅ Conforme" : "❌ Non conforme"}`)
           if (contentModeration.groq.reasoning) {
             reasoningLines.push(`Détails : ${contentModeration.groq.reasoning}`)
           }
           reasoningLines.push(`Insulte détectée : ${contentModeration.groq.is_insult ? "❌ Oui" : "✅ Non"}`)
           reasoningLines.push("")
         }
-
+        
         // Audio analysis section
         reasoningLines.push("🎶 Analyse audio")
-        reasoningLines.push(
-          `Statut : ${audioModeration.can_publish ? "✅ Autorisé" : "🚫 Bloqué"} ${copyrightAnalysis.music_detected ? "(musique protégée détectée)" : ""}`,
-        )
-
+        reasoningLines.push(`Statut : ${audioModeration.can_publish ? "✅ Autorisé" : "🚫 Bloqué"} ${copyrightAnalysis.music_detected ? "(musique protégée détectée)" : ""}`)
+        
         if (copyrightAnalysis.music_detected) {
           if (copyrightAnalysis.title) reasoningLines.push(`Titre : ${copyrightAnalysis.title}`)
           if (copyrightAnalysis.artist) reasoningLines.push(`Artiste : ${copyrightAnalysis.artist}`)
           if (copyrightAnalysis.album) reasoningLines.push(`Album : ${copyrightAnalysis.album}`)
           if (copyrightAnalysis.release_date) reasoningLines.push(`Date de sortie : ${copyrightAnalysis.release_date}`)
-          if (copyrightAnalysis.confidence_score)
-            reasoningLines.push(`Confiance : ${Math.round(copyrightAnalysis.confidence_score * 100)}%`)
-
+          if (copyrightAnalysis.confidence_score) reasoningLines.push(`Confiance : ${Math.round(copyrightAnalysis.confidence_score * 100)}%`)
+          
           if (audioModeration.copyrighted_segment) {
             const segment = audioModeration.copyrighted_segment
             reasoningLines.push(`Segment protégé : ⏱️ ${segment.start_time} → ${segment.end_time}`)
           }
-
+          
           if (copyrightAnalysis.strike_risk_level) {
-            const riskEmoji =
-              copyrightAnalysis.strike_risk_level === "critical"
-                ? "⚠️"
-                : copyrightAnalysis.strike_risk_level === "high"
-                  ? "⚠️"
-                  : "⚡"
-            reasoningLines.push(
-              `Niveau de risque : ${riskEmoji} ${copyrightAnalysis.strike_risk_level === "critical" ? "Critique (strike probable)" : copyrightAnalysis.strike_risk_level}`,
-            )
+            const riskEmoji = copyrightAnalysis.strike_risk_level === "critical" ? "⚠️" : 
+                             copyrightAnalysis.strike_risk_level === "high" ? "⚠️" : "⚡"
+            reasoningLines.push(`Niveau de risque : ${riskEmoji} ${copyrightAnalysis.strike_risk_level === "critical" ? "Critique (strike probable)" : copyrightAnalysis.strike_risk_level}`)
           }
         }
-
+        
         reasoningLines.push("")
-
+        
         // Final decision section
         reasoningLines.push("🛑 Décision finale")
         reasoningLines.push(`Peut publier ? ${audioModeration.can_publish ? "✅ Oui" : "❌ Non"}`)
@@ -417,15 +407,15 @@ export default function Chat() {
           reasoningLines.push(`Action automatique : ${actionEmoji} ${actionText}`)
         }
         if (audioModeration.violated_rules?.length > 0) {
-          const rulesWithEmojis = audioModeration.violated_rules.map((rule) => {
-            if (rule.includes("Parodie") || rule.includes("Remix")) return `🎭 ${rule}`
-            if (rule.includes("copyright") || rule.includes("droits")) return `©️ ${rule}`
-            if (rule.includes("harcèlement")) return `⚠️ ${rule}`
+          const rulesWithEmojis = audioModeration.violated_rules.map(rule => {
+            if (rule.includes('Parodie') || rule.includes('Remix')) return `🎭 ${rule}`
+            if (rule.includes('copyright') || rule.includes('droits')) return `©️ ${rule}`
+            if (rule.includes('harcèlement')) return `⚠️ ${rule}`
             return rule
           })
           reasoningLines.push(`Raisons : ${rulesWithEmojis.join(", ")}`)
         }
-
+        
         const reasoning = reasoningLines.join("\n")
 
         setMessages((prev) => [
@@ -610,41 +600,46 @@ export default function Chat() {
     if (contentMod && contentMod.groq) {
       const groq = contentMod.groq
       const isCompliant = groq.status === "conforme"
-
+      
       lines.push(`${isCompliant ? "✅" : "❌"} Contenu ${isCompliant ? "compatible" : "non compatible"}`)
-
+      
       if (groq.reasoning) {
         lines.push("")
         lines.push("Raison:")
         lines.push(groq.reasoning)
       }
-
+      
       if (groq.category && groq.category !== "aucun") {
         lines.push("")
         lines.push(`📋 Catégorie: ${groq.category}`)
       }
-
+      
       if (groq.is_insult !== undefined) {
         lines.push(`🚫 Insulte détectée: ${groq.is_insult ? "Oui" : "Non"}`)
       }
-
-      return lines.join("\n")
+      
+      // Continue to show audio analysis if present
     }
 
-    // Overall status determination (only for non-text content)
-
-    // Audio moderation
+    // Audio moderation - show detailed analysis
     if (audioMod) {
       lines.push("")
       lines.push("🎧 Analyse audio:")
       lines.push(`• Statut: ${audioMod.status === "blocked" ? "❌ Bloqué" : "✅ Autorisé"}`)
       lines.push(`• Publication: ${audioMod.can_publish ? "✅ Autorisée" : "❌ Bloquée"}`)
+      
+      // Show main message if present
+      if (audioMod.message) {
+        lines.push("")
+        lines.push("📢 Message:")
+        lines.push(audioMod.message)
+      }
 
       // Violated rules
       if (audioMod.violated_rules && audioMod.violated_rules.length > 0) {
         lines.push("")
         lines.push("Règles violées:")
-        audioMod.violated_rules.forEach((rule) => {
+        audioMod.violated_rules.forEach(rule => {
           lines.push(`• ${rule}`)
         })
       }
@@ -673,43 +668,36 @@ export default function Chat() {
         lines.push("")
         lines.push("🎵 Analyse des droits d'auteur:")
         lines.push(`• Musique détectée: ${copyright.music_detected ? "✅ Oui" : "❌ Non"}`)
-
+        
         if (copyright.music_detected) {
           if (copyright.title) {
-            const isParody =
-              copyright.title.toLowerCase().includes("paródia") ||
-              copyright.title.toLowerCase().includes("parody") ||
-              copyright.title.toLowerCase().includes("remix") ||
-              copyright.title.toLowerCase().includes("cover")
-            lines.push(`• Titre: ${copyright.title} ${isParody ? "🎭 (Parodie/Remix)" : ""}`)
+            const isParody = copyright.title.toLowerCase().includes('paródia') || 
+                           copyright.title.toLowerCase().includes('parody') ||
+                           copyright.title.toLowerCase().includes('remix') ||
+                           copyright.title.toLowerCase().includes('cover')
+            lines.push(`• Titre: ${copyright.title} ${isParody ? '🎭 (Parodie/Remix)' : ''}`)
           }
           if (copyright.artist) lines.push(`• Artiste: ${copyright.artist}`)
           if (copyright.album) lines.push(`• Album: ${copyright.album}`)
           if (copyright.release_date) lines.push(`• Date de sortie: ${copyright.release_date}`)
-
-          const isHighRisk =
-            copyright.copyright_protected ||
-            copyright.strike_risk_level === "critical" ||
-            copyright.strike_risk_level === "high" ||
-            copyright.confidence_score >= 0.85
-          lines.push(`• Protégé par droits d'auteur: ${isHighRisk ? "🚨 Oui" : "✅ Non"}`)
-
+          
+          const isHighRisk = copyright.copyright_protected || 
+                           copyright.strike_risk_level === 'critical' || 
+                           copyright.strike_risk_level === 'high' ||
+                           copyright.confidence_score >= 0.85
+          lines.push(`• Protégé par droits d'auteur: ${isHighRisk ? '🚨 Oui' : '✅ Non'}`)
+          
           if (copyright.confidence_score !== undefined) {
             lines.push(`• Score de confiance: ${Math.round(copyright.confidence_score * 100)}%`)
           }
-
+          
           if (copyright.strike_risk_level) {
-            const riskEmoji =
-              copyright.strike_risk_level === "critical"
-                ? "🚨"
-                : copyright.strike_risk_level === "high"
-                  ? "⚠️"
-                  : copyright.strike_risk_level === "medium"
-                    ? "⚡"
-                    : "✅"
+            const riskEmoji = copyright.strike_risk_level === "critical" ? "🚨" : 
+                             copyright.strike_risk_level === "high" ? "⚠️" : 
+                             copyright.strike_risk_level === "medium" ? "⚡" : "✅"
             lines.push(`• Risque de strike: ${riskEmoji} ${copyright.strike_risk_level}`)
           }
-
+          
           if (copyright.recommendation) {
             lines.push("")
             lines.push("💡 Recommandation:")
@@ -727,6 +715,7 @@ export default function Chat() {
         if (segment.offset_ms !== undefined) {
           lines.push(`• Décalage: ${segment.offset_ms}ms`)
         }
+
       }
 
       // Automatic action
@@ -739,15 +728,16 @@ export default function Chat() {
     // Image analysis - show structured JSON data
     if (!contentMod && !audioMod && msg.category === "image" && msg.payload?.youtube_compatibility) {
       const compatibility = msg.payload.youtube_compatibility
-
+      
       lines.push("🖼️ Analyse d'image:")
       lines.push(`• Compatible YouTube: ${compatibility.compatible ? "✅ Oui" : "❌ Non"}`)
-
+      
       if (compatibility.commentaire) {
         lines.push("")
         lines.push("📋 Détails de l'analyse:")
         lines.push(compatibility.commentaire)
       }
+    
     }
     // Fallback for other content types without specific moderation data
     else if (!contentMod && !audioMod) {
@@ -768,7 +758,7 @@ export default function Chat() {
 
     return lines.join("\n")
   }, [])
-
+  
   const toggleReasoning = useCallback((id) => {
     setMessages((prev) => prev.map((m) => (m.id === id ? { ...m, expanded: !m.expanded } : m)))
   }, [])
@@ -1091,8 +1081,8 @@ export default function Chat() {
         ${darkMode ? "bg-gray-800/30 border border-gray-700/50" : "bg-white/60 border border-gray-200"}`}
         >
           <div className="w-12 h-12 rounded-full overflow-hidden bg-white/10 backdrop-blur-sm flex items-center justify-center border-2 border-pink-500">
-            <img
-              src="/default-avatar1.png"
+            <img 
+              src="/default-avatar1.png" 
               alt="Avatar"
               className="w-10 h-10 object-cover"
               onError={() => {
@@ -1125,7 +1115,7 @@ export default function Chat() {
             >
               <Menu size={24} className="text-pink-500" />
             </button>
-
+            
             <Image
               src="/devaktus.png"
               alt="Devaktus Logo"
@@ -1285,199 +1275,9 @@ export default function Chat() {
                         </video>
                       )}
                       {msg.mediaType === "audio" && (
-                        <div className="space-y-4">
-                          <audio src={msg.mediaUrl} controls className="w-full">
-                            Votre navigateur ne supporte pas la lecture audio.
-                          </audio>
-
-                          {msg.moderationData && (
-                            <div className="bg-gray-50 rounded-lg p-4 space-y-4 text-sm">
-                              {/* Content Moderation Section */}
-                              <div className="border-b pb-3">
-                                <h4 className="font-semibold text-gray-800 mb-2">Modération du Contenu</h4>
-                                <div className="grid grid-cols-2 gap-4">
-                                  <div>
-                                    <span className="font-medium">Statut:</span>
-                                    <span
-                                      className={`ml-2 px-2 py-1 rounded text-xs ${
-                                        msg.moderationData.content_moderation?.status === "conforme"
-                                          ? "bg-green-100 text-green-800"
-                                          : "bg-red-100 text-red-800"
-                                      }`}
-                                    >
-                                      {msg.moderationData.content_moderation?.status}
-                                    </span>
-                                  </div>
-                                  <div>
-                                    <span className="font-medium">BERT:</span>
-                                    <span className="ml-2 text-gray-600">
-                                      {msg.moderationData.content_moderation?.bert?.label}(
-                                      {Math.round(msg.moderationData.content_moderation?.bert?.confidence * 100)}%)
-                                    </span>
-                                  </div>
-                                </div>
-                                {msg.moderationData.content_moderation?.groq && (
-                                  <div className="mt-2">
-                                    <span className="font-medium">Analyse Groq:</span>
-                                    <p className="text-gray-600 mt-1">
-                                      {msg.moderationData.content_moderation.groq.reasoning}
-                                    </p>
-                                  </div>
-                                )}
-                              </div>
-
-                              {/* Audio Moderation Section */}
-                              <div>
-                                <h4 className="font-semibold text-gray-800 mb-2">Modération Audio</h4>
-
-                                <div className="space-y-3">
-                                  <div className="flex items-center gap-2">
-                                    <span className="font-medium">Statut:</span>
-                                    <span
-                                      className={`px-2 py-1 rounded text-xs ${
-                                        msg.moderationData.audio_moderation?.status === "blocked"
-                                          ? "bg-red-100 text-red-800"
-                                          : "bg-green-100 text-green-800"
-                                      }`}
-                                    >
-                                      {msg.moderationData.audio_moderation?.status}
-                                    </span>
-                                    <span
-                                      className={`px-2 py-1 rounded text-xs ${
-                                        msg.moderationData.audio_moderation?.can_publish
-                                          ? "bg-green-100 text-green-800"
-                                          : "bg-red-100 text-red-800"
-                                      }`}
-                                    >
-                                      {msg.moderationData.audio_moderation?.can_publish ? "Publiable" : "Non publiable"}
-                                    </span>
-                                  </div>
-
-                                  {msg.moderationData.audio_moderation?.message && (
-                                    <div className="bg-red-50 border border-red-200 rounded p-3">
-                                      <p className="text-red-800 font-medium">
-                                        {msg.moderationData.audio_moderation.message}
-                                      </p>
-                                    </div>
-                                  )}
-
-                                  {msg.moderationData.audio_moderation?.violated_rules?.length > 0 && (
-                                    <div>
-                                      <span className="font-medium">Règles violées:</span>
-                                      <ul className="list-disc list-inside mt-1 text-gray-600">
-                                        {msg.moderationData.audio_moderation.violated_rules.map((rule, index) => (
-                                          <li key={index}>{rule}</li>
-                                        ))}
-                                      </ul>
-                                    </div>
-                                  )}
-
-                                  {/* Copyright Analysis */}
-                                  {msg.moderationData.audio_moderation?.copyright_analysis && (
-                                    <div className="bg-yellow-50 border border-yellow-200 rounded p-3">
-                                      <h5 className="font-medium text-yellow-800 mb-2">Analyse des Droits d'Auteur</h5>
-                                      <div className="space-y-2 text-sm">
-                                        {msg.moderationData.audio_moderation.copyright_analysis.music_detected && (
-                                          <div className="grid grid-cols-2 gap-2">
-                                            <div>
-                                              <span className="font-medium">Titre:</span>{" "}
-                                              {msg.moderationData.audio_moderation.copyright_analysis.title}
-                                            </div>
-                                            <div>
-                                              <span className="font-medium">Artiste:</span>{" "}
-                                              {msg.moderationData.audio_moderation.copyright_analysis.artist}
-                                            </div>
-                                            <div>
-                                              <span className="font-medium">Album:</span>{" "}
-                                              {msg.moderationData.audio_moderation.copyright_analysis.album}
-                                            </div>
-                                            <div>
-                                              <span className="font-medium">Date:</span>{" "}
-                                              {msg.moderationData.audio_moderation.copyright_analysis.release_date}
-                                            </div>
-                                          </div>
-                                        )}
-                                        <div className="flex items-center gap-4">
-                                          <span className="font-medium">Confiance:</span>
-                                          <span className="text-yellow-700">
-                                            {Math.round(
-                                              msg.moderationData.audio_moderation.copyright_analysis.confidence_score *
-                                                100,
-                                            )}
-                                            %
-                                          </span>
-                                          <span className="font-medium">Risque:</span>
-                                          <span
-                                            className={`px-2 py-1 rounded text-xs ${
-                                              msg.moderationData.audio_moderation.copyright_analysis
-                                                .strike_risk_level === "critical"
-                                                ? "bg-red-100 text-red-800"
-                                                : "bg-yellow-100 text-yellow-800"
-                                            }`}
-                                          >
-                                            {msg.moderationData.audio_moderation.copyright_analysis.strike_risk_level}
-                                          </span>
-                                        </div>
-                                        {msg.moderationData.audio_moderation.copyright_analysis.recommendation && (
-                                          <p className="text-yellow-700 italic">
-                                            {msg.moderationData.audio_moderation.copyright_analysis.recommendation}
-                                          </p>
-                                        )}
-                                      </div>
-                                    </div>
-                                  )}
-
-                                  {/* Copyrighted Segment */}
-                                  {msg.moderationData.audio_moderation?.copyrighted_segment && (
-                                    <div className="bg-red-50 border border-red-200 rounded p-3">
-                                      <h5 className="font-medium text-red-800 mb-2">Segment Protégé Détecté</h5>
-                                      <div className="text-sm space-y-1">
-                                        <div>
-                                          <span className="font-medium">Début:</span>{" "}
-                                          {msg.moderationData.audio_moderation.copyrighted_segment.start_time}
-                                        </div>
-                                        <div>
-                                          <span className="font-medium">Fin:</span>{" "}
-                                          {msg.moderationData.audio_moderation.copyrighted_segment.end_time}
-                                        </div>
-                                        <div>
-                                          <span className="font-medium">Durée:</span>{" "}
-                                          {Math.round(
-                                            (msg.moderationData.audio_moderation.copyrighted_segment.end_ms -
-                                              msg.moderationData.audio_moderation.copyrighted_segment.start_ms) /
-                                              1000,
-                                          )}
-                                          s
-                                        </div>
-                                      </div>
-                                    </div>
-                                  )}
-
-                                  {/* Lyrics Analysis */}
-                                  {msg.moderationData.audio_moderation?.lyrics_analysis && (
-                                    <div className="bg-blue-50 border border-blue-200 rounded p-3">
-                                      <h5 className="font-medium text-blue-800 mb-2">Analyse des Paroles</h5>
-                                      <div className="text-sm space-y-1">
-                                        <div>
-                                          <span className="font-medium">Statut:</span>{" "}
-                                          {msg.moderationData.audio_moderation.lyrics_analysis.status}
-                                        </div>
-                                        <div>
-                                          <span className="font-medium">Toxique:</span>{" "}
-                                          {msg.moderationData.audio_moderation.lyrics_analysis.toxic ? "Oui" : "Non"}
-                                        </div>
-                                        <div>
-                                          <span className="font-medium">Recommandation:</span>{" "}
-                                          {msg.moderationData.audio_moderation.lyrics_analysis.recommendation}
-                                        </div>
-                                      </div>
-                                    </div>
-                                  )}
-                                </div>
-                              </div>
-                            </div>
-                          )}
-                        </div>
+                        <audio src={msg.mediaUrl} controls className="w-full">
+                          Votre navigateur ne supporte pas la lecture audio.
+                        </audio>
                       )}
                     </div>
                   ) : (
