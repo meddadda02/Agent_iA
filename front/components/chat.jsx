@@ -590,6 +590,91 @@ export default function Chat() {
     [token, isLoading, selectedModel],
   )
 
+  // Calculate compliance score based on analysis results
+  const calculateComplianceScore = useCallback((msg) => {
+    if (!msg.payload) return { score: 0, details: "Aucune donnée" }
+
+    let totalScore = 0
+    let maxScore = 0
+    let details = []
+
+    // Content moderation scoring (GROQ)
+    const contentMod = msg.payload.content_moderation
+    if (contentMod && contentMod.groq) {
+      maxScore += 40
+      const isCompliant = contentMod.groq.status === "conforme"
+      const contentScore = isCompliant ? 40 : (contentMod.groq.is_insult === false ? 20 : 0)
+      totalScore += contentScore
+      details.push(`Contenu: ${contentScore}/40 pts ${isCompliant ? "✅" : "❌"}`)
+    }
+
+    // Audio moderation scoring
+    const audioMod = msg.payload.audio_moderation
+    if (audioMod) {
+      maxScore += 60
+      let audioScore = 0
+      
+      // Base publication allowance (30 pts)
+      if (audioMod.can_publish) audioScore += 30
+      details.push(`Publication: ${audioMod.can_publish ? "30/30" : "0/30"} pts ${audioMod.can_publish ? "✅" : "❌"}`)
+      
+      // Copyright analysis (20 pts)
+      const copyright = audioMod.copyright_analysis
+      if (copyright) {
+        const copyrightScore = copyright.music_detected ? 
+          (copyright.strike_risk_level === "critical" ? 0 : 
+           copyright.strike_risk_level === "high" ? 5 : 
+           copyright.strike_risk_level === "medium" ? 15 : 20) : 20
+        audioScore += copyrightScore
+        details.push(`Droits d'auteur: ${copyrightScore}/20 pts ${copyright.music_detected ? (copyright.strike_risk_level === "critical" || copyright.strike_risk_level === "high" ? "❌" : "⚠️") : "✅"}`)
+      }
+      
+      // Lyrics analysis (10 pts)
+      const lyrics = audioMod.lyrics_analysis
+      if (lyrics) {
+        const lyricsScore = lyrics.toxic ? 0 : (lyrics.status === "allowed" ? 10 : 5)
+        audioScore += lyricsScore
+        details.push(`Paroles: ${lyricsScore}/10 pts ${lyrics.toxic ? "❌" : lyrics.status === "allowed" ? "✅" : "⚠️"}`)
+      }
+      
+      totalScore += audioScore
+    }
+
+    // Image analysis scoring
+    const imageCompat = msg.payload.youtube_compatibility
+    if (imageCompat && !contentMod && !audioMod) {
+      maxScore += 100
+      const imageScore = imageCompat.compatible ? 100 : 30
+      totalScore += imageScore
+      details.push(`Image YouTube: ${imageScore}/100 pts ${imageCompat.compatible ? "✅" : "❌"}`)
+    }
+
+    // Video analysis scoring
+    const report = msg.payload.report
+    if (report && !contentMod && !audioMod && !imageCompat) {
+      maxScore += 100
+      let videoScore = 0
+      
+      if (report.can_publish) videoScore += 50
+      if (!report.summary?.toxic) videoScore += 30
+      if (report.youtube_report?.compatible !== false) videoScore += 20
+      
+      totalScore += videoScore
+      details.push(`Vidéo: ${videoScore}/100 pts ${report.can_publish ? "✅" : "❌"}`)
+    }
+
+    // Fallback for simple text analysis
+    if (maxScore === 0) {
+      maxScore = 100
+      const isCompliant = msg.status === "conforme"
+      totalScore = isCompliant ? 100 : 30
+      details.push(`Analyse générale: ${totalScore}/100 pts ${isCompliant ? "✅" : "❌"}`)
+    }
+
+    const percentage = maxScore > 0 ? Math.round((totalScore / maxScore) * 100) : 0
+    return { score: percentage, details: details.join(" • ") }
+  }, [])
+
   // UI helpers for analysis messages
   const formatAnalysisPlain = useCallback((msg) => {
     const lines = []
@@ -1307,6 +1392,22 @@ export default function Chat() {
               const subText = darkMode ? "text-gray-300" : "text-gray-600"
               const plain = formatAnalysisPlain(msg)
               const richContent = formatAnalysisRich(msg)
+              const scoreData = calculateComplianceScore(msg)
+
+              // Score color based on percentage
+              const getScoreColor = (score) => {
+                if (score >= 80) return "text-green-500"
+                if (score >= 60) return "text-yellow-500"
+                if (score >= 40) return "text-orange-500"
+                return "text-red-500"
+              }
+
+              const getScoreBg = (score) => {
+                if (score >= 80) return "bg-green-500/20 border-green-500/30"
+                if (score >= 60) return "bg-yellow-500/20 border-yellow-500/30"
+                if (score >= 40) return "bg-orange-500/20 border-orange-500/30"
+                return "bg-red-500/20 border-red-500/30"
+              }
 
               return (
                 <div
@@ -1315,6 +1416,36 @@ export default function Chat() {
                     darkMode ? "bg-gray-800/30 border-gray-700/50 text-white" : "bg-white border-gray-200 text-gray-900"
                   }`}
                 >
+                  {/* Compliance Score Header */}
+                  <div className={`flex items-center justify-between mb-4 p-3 rounded-xl border ${getScoreBg(scoreData.score)}`}>
+                    <div className="flex items-center gap-3">
+                      <div className={`text-2xl font-bold ${getScoreColor(scoreData.score)}`}>
+                        {scoreData.score}%
+                      </div>
+                      <div>
+                        <div className={`font-semibold ${textBase}`}>
+                          Score de conformité
+                        </div>
+                        <div className={`text-sm ${subText}`}>
+                          {scoreData.score >= 80 ? "Excellent" : 
+                           scoreData.score >= 60 ? "Bon" : 
+                           scoreData.score >= 40 ? "Moyen" : "Faible"}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {scoreData.score >= 80 && <span className="text-2xl">🎉</span>}
+                      {scoreData.score >= 60 && scoreData.score < 80 && <span className="text-2xl">👍</span>}
+                      {scoreData.score >= 40 && scoreData.score < 60 && <span className="text-2xl">⚠️</span>}
+                      {scoreData.score < 40 && <span className="text-2xl">❌</span>}
+                    </div>
+                  </div>
+
+                  {/* Score Details */}
+                  <div className={`text-xs mb-4 p-2 rounded-lg ${darkMode ? "bg-gray-700/30" : "bg-gray-100/50"} ${subText}`}>
+                    📊 Détail du score: {scoreData.details}
+                  </div>
+
                   {richContent ? (
                     richContent
                   ) : (
