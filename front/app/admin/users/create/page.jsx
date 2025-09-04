@@ -87,34 +87,38 @@ export default function CreateUserPage() {
       <div className="space-y-10">
         {/* Header */}
         <div className="text-center mb-8">
-          <h1 className="text-3xl font-extrabold text-black tracking-tight">Create User</h1>
-          <p className="text-gray-500">Add a new user to the system</p>
+          <h1 className="text-4xl font-extrabold text-gray-900 tracking-tight">Create User</h1>
+          <p className="text-gray-500 mt-2">Add a new user to the system</p>
         </div>
 
         {/* Back Button */}
-        <div className="flex justify-start mb-4">
+        <div className="flex justify-start mb-6">
           <Link href="/admin/users">
-            <Button variant="ghost" size="sm" className="flex items-center">
-              <ArrowLeft className="h-4 w-4 mr-2" /> Back
+            <Button
+              variant="ghost"
+              size="sm"
+              className="flex items-center gap-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg"
+            >
+              <ArrowLeft className="h-4 w-4" /> Back
             </Button>
           </Link>
         </div>
 
         {/* Form Card */}
-        <Card className="max-w-2xl mx-auto shadow-2xl border-0 bg-white/90 backdrop-blur-md">
+        <Card className="max-w-2xl mx-auto shadow-xl border border-gray-100 rounded-2xl bg-white">
           <CardHeader>
-            <CardTitle className="text-xl font-bold text-black">User Information</CardTitle>
+            <CardTitle className="text-xl font-bold text-gray-900">User Information</CardTitle>
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-8">
               {errors.submit && (
-                <div className="p-3 text-sm text-red-600 bg-red-50 border border-red-200 rounded-md">
+                <div className="p-3 text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg">
                   {errors.submit}
                 </div>
               )}
 
               {/* Username & Email */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="space-y-2">
                   <Label htmlFor="username" className="font-semibold text-gray-700">Username</Label>
                   <Input
@@ -123,7 +127,7 @@ export default function CreateUserPage() {
                     value={formData.username}
                     onChange={handleInputChange}
                     placeholder="Enter username"
-                    className={`focus:ring-2 focus:ring-gray-400 bg-gray-50 ${errors.username ? "border-red-500" : ""}`}
+                    className={`rounded-lg border-gray-200 bg-gray-50 focus:ring-2 focus:ring-blue-500 ${errors.username ? "border-red-500" : ""}`}
                   />
                   {errors.username && <p className="text-xs text-red-600">{errors.username}</p>}
                 </div>
@@ -136,14 +140,14 @@ export default function CreateUserPage() {
                     value={formData.email}
                     onChange={handleInputChange}
                     placeholder="Enter email"
-                    className={`focus:ring-2 focus:ring-gray-400 bg-gray-50 ${errors.email ? "border-red-500" : ""}`}
+                    className={`rounded-lg border-gray-200 bg-gray-50 focus:ring-2 focus:ring-blue-500 ${errors.email ? "border-red-500" : ""}`}
                   />
                   {errors.email && <p className="text-xs text-red-600">{errors.email}</p>}
                 </div>
               </div>
 
               {/* Password & Confirm Password */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="space-y-2">
                   <Label htmlFor="password" className="font-semibold text-gray-700">Password</Label>
                   <Input
@@ -153,7 +157,7 @@ export default function CreateUserPage() {
                     value={formData.password}
                     onChange={handleInputChange}
                     placeholder="Enter password"
-                    className={`focus:ring-2 focus:ring-gray-400 bg-gray-50 ${errors.password ? "border-red-500" : ""}`}
+                    className={`rounded-lg border-gray-200 bg-gray-50 focus:ring-2 focus:ring-blue-500 ${errors.password ? "border-red-500" : ""}`}
                   />
                   {errors.password && <p className="text-xs text-red-600">{errors.password}</p>}
                 </div>
@@ -166,7 +170,7 @@ export default function CreateUserPage() {
                     value={formData.confirm_password}
                     onChange={handleInputChange}
                     placeholder="Confirm password"
-                    className={`focus:ring-2 focus:ring-gray-400 bg-gray-50 ${errors.confirm_password ? "border-red-500" : ""}`}
+                    className={`rounded-lg border-gray-200 bg-gray-50 focus:ring-2 focus:ring-blue-500 ${errors.confirm_password ? "border-red-500" : ""}`}
                   />
                   {errors.confirm_password && <p className="text-xs text-red-600">{errors.confirm_password}</p>}
                 </div>
@@ -179,7 +183,7 @@ export default function CreateUserPage() {
                   value={formData.role}
                   onValueChange={(value) => setFormData((prev) => ({ ...prev, role: value }))}
                 >
-                  <SelectTrigger className="focus:ring-2 focus:ring-gray-400 bg-gray-50">
+                  <SelectTrigger className="rounded-lg border-gray-200 bg-gray-50 focus:ring-2 focus:ring-blue-500">
                     <SelectValue placeholder="Select role" />
                   </SelectTrigger>
                   <SelectContent>
@@ -193,17 +197,11 @@ export default function CreateUserPage() {
               <div className="space-y-2">
                 <Label htmlFor="photo" className="font-semibold text-gray-700">Profile Photo (Optional)</Label>
                 <div className="flex items-center space-x-4">
-                  <Input
-                    id="photo"
-                    type="file"
-                    accept="image/*"
-                    onChange={handlePhotoChange}
-                    className="hidden"
-                  />
+                  <Input id="photo" type="file" accept="image/*" onChange={handlePhotoChange} className="hidden" />
                   <Button
                     type="button"
                     variant="outline"
-                    className="flex items-center gap-2 border-gray-300"
+                    className="flex items-center gap-2 rounded-lg border-gray-300 hover:bg-gray-100"
                     onClick={() => document.getElementById("photo").click()}
                   >
                     <Upload className="h-4 w-4" /> Choose Photo
@@ -213,16 +211,16 @@ export default function CreateUserPage() {
               </div>
 
               {/* Action Buttons */}
-              <div className="flex justify-end space-x-4 pt-4">
+              <div className="flex justify-end space-x-4 pt-6">
                 <Link href="/admin/users">
-                  <Button type="button" variant="outline" className="border-gray-300">
+                  <Button type="button" variant="outline" className="rounded-lg border-gray-300 hover:bg-gray-100">
                     Cancel
                   </Button>
                 </Link>
                 <Button
                   type="submit"
                   disabled={loading}
-                  className="bg-gray-800 hover:bg-gray-900 text-white font-semibold shadow-md"
+                  className="rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold shadow-md px-6"
                 >
                   {loading ? "Creating..." : "Create User"}
                 </Button>

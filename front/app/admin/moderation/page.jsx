@@ -3,7 +3,6 @@
 import { useState, useEffect } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { List, RefreshCw, PlusCircle, Edit, Trash2 } from "lucide-react"
 import AdminLayout from "@/components/admin_layout"
@@ -20,99 +19,51 @@ export default function ModerationPage() {
   const [newRuleContent, setNewRuleContent] = useState("")
   const [editingRule, setEditingRule] = useState(null)
 
-  // Load token on client
-  useEffect(() => {
-    const t = localStorage.getItem("token")
-    setToken(t)
-  }, [])
-
-  // Fetch data when token is available
-  useEffect(() => {
-    if (token) fetchData()
-  }, [token])
+  useEffect(() => { setToken(localStorage.getItem("token")) }, [])
+  useEffect(() => { if (token) fetchData() }, [token])
 
   const fetchData = async () => {
     setLoading(true)
     try {
-      const textRes = await fetch("http://localhost:8000/admin/moderation/models", {
-        headers: { Authorization: `Bearer ${token}` },
-      })
-      const textData = await textRes.json()
-      // Remove status from text models
+      const textData = await (await fetch("http://localhost:8000/admin/moderation/models", { headers: { Authorization: `Bearer ${token}` } })).json()
       setTextModels((textData.models || []).map((m) => ({ name: m })))
 
-      const imageRes = await fetch("http://localhost:8000/admin/moderation/models-list", {
-        headers: { Authorization: `Bearer ${token}` },
-      })
-      const imageData = await imageRes.json()
+      const imageData = await (await fetch("http://localhost:8000/admin/moderation/models-list", { headers: { Authorization: `Bearer ${token}` } })).json()
       setImageModels((imageData.models || []).map((m) => ({ name: m })))
 
-      const rulesRes = await fetch("http://localhost:8000/admin/moderation/rules", {
-        headers: { Authorization: `Bearer ${token}` },
-      })
-      const rulesData = await rulesRes.json()
+      const rulesData = await (await fetch("http://localhost:8000/admin/moderation/rules", { headers: { Authorization: `Bearer ${token}` } })).json()
       setRules(Array.isArray(rulesData) ? rulesData : rulesData.rules || [])
-    } catch (e) {
-      console.error(e)
-    } finally {
-      setLoading(false)
-    }
+    } catch (e) { console.error(e) }
+    finally { setLoading(false) }
   }
 
-  const toggleRule = (id) => {
-    setExpandedRuleIds((prev) =>
-      prev.includes(id) ? prev.filter((rid) => rid !== id) : [...prev, id]
-    )
-  }
+  const toggleRule = (id) => setExpandedRuleIds(prev => prev.includes(id) ? prev.filter(rid => rid !== id) : [...prev, id])
 
   const handleAddOrUpdateRule = async () => {
     if (!token) return
     try {
-      const url = editingRule
-        ? `http://localhost:8000/admin/moderation/rules/${editingRule.id}`
-        : "http://localhost:8000/admin/moderation/rules"
+      const url = editingRule ? `http://localhost:8000/admin/moderation/rules/${editingRule.id}` : "http://localhost:8000/admin/moderation/rules"
       const method = editingRule ? "PUT" : "POST"
-
       const formData = new FormData()
       formData.append("title", newRuleTitle)
       formData.append("content", newRuleContent)
 
-      const res = await fetch(url, {
-        method,
-        headers: { Authorization: `Bearer ${token}` },
-        body: formData,
-      })
-
+      const res = await fetch(url, { method, headers: { Authorization: `Bearer ${token}` }, body: formData })
       if (!res.ok) throw new Error("Failed to save rule")
-      setNewRuleTitle("")
-      setNewRuleContent("")
-      setEditingRule(null)
-      setShowAddForm(false)
+      setNewRuleTitle(""); setNewRuleContent(""); setEditingRule(null); setShowAddForm(false)
       fetchData()
-    } catch (e) {
-      console.error(e)
-    }
+    } catch (e) { console.error(e) }
   }
 
-  const handleEditRule = (rule) => {
-    setEditingRule(rule)
-    setNewRuleTitle(rule.title)
-    setNewRuleContent(rule.content || "")
-    setShowAddForm(true)
-  }
+  const handleEditRule = (rule) => { setEditingRule(rule); setNewRuleTitle(rule.title); setNewRuleContent(rule.content || ""); setShowAddForm(true) }
 
   const handleDeleteRule = async (id) => {
     if (!token || !confirm("Are you sure?")) return
-    try {
-      const res = await fetch(`http://localhost:8000/admin/moderation/rules/${id}`, {
-        method: "DELETE",
-        headers: { Authorization: `Bearer ${token}` },
-      })
+    try { 
+      const res = await fetch(`http://localhost:8000/admin/moderation/rules/${id}`, { method: "DELETE", headers: { Authorization: `Bearer ${token}` } })
       if (!res.ok) throw new Error("Delete failed")
       fetchData()
-    } catch (e) {
-      console.error(e)
-    }
+    } catch (e) { console.error(e) }
   }
 
   if (!token) return <AdminLayout><div>Loading token...</div></AdminLayout>
@@ -120,46 +71,44 @@ export default function ModerationPage() {
 
   return (
     <AdminLayout>
-      <div className="space-y-6">
-        <div className="flex items-center justify-between">
-          <h1 className="text-2xl font-bold">Moderation Management</h1>
-          <Button onClick={() => fetchData()}><RefreshCw className="h-4 w-4 mr-2" /> Refresh</Button>
+      <div className="space-y-8">
+        {/* Header */}
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <h1 className="text-3xl font-bold text-gray-900">Moderation Management</h1>
+          <Button className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold shadow-md" onClick={fetchData}>
+            <RefreshCw className="h-4 w-4" /> Refresh
+          </Button>
         </div>
 
         <Tabs defaultValue="models" className="space-y-6">
-          <TabsList>
-            <TabsTrigger value="models">Models</TabsTrigger>
-            <TabsTrigger value="rules">Rules</TabsTrigger>
+          <TabsList className="bg-gray-50 rounded-lg p-1 shadow-inner">
+            <TabsTrigger value="models" className="text-gray-700 font-medium">Models</TabsTrigger>
+            <TabsTrigger value="rules" className="text-gray-700 font-medium">Rules</TabsTrigger>
           </TabsList>
 
+          {/* Models Tab */}
           <TabsContent value="models">
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <Card>
+              <Card className="shadow-xl border border-gray-100 rounded-2xl">
                 <CardHeader>
-                  <CardTitle>Text Models</CardTitle>
+                  <CardTitle className="text-lg font-semibold text-blue-700">Text Models</CardTitle>
                 </CardHeader>
-                <CardContent>
+                <CardContent className="space-y-2">
                   {textModels.map((m, i) => (
-                    <div
-                      key={i}
-                      className="flex items-center gap-2 p-2 border rounded bg-blue-50 hover:bg-blue-100 transition"
-                    >
+                    <div key={i} className="flex items-center gap-2 p-2 rounded-lg bg-blue-50 hover:bg-blue-100 transition shadow-sm">
                       <span className="font-medium text-blue-800">{m.name}</span>
                     </div>
                   ))}
                 </CardContent>
               </Card>
 
-              <Card>
+              <Card className="shadow-xl border border-gray-100 rounded-2xl">
                 <CardHeader>
-                  <CardTitle>Image Models</CardTitle>
+                  <CardTitle className="text-lg font-semibold text-green-700">Image Models</CardTitle>
                 </CardHeader>
-                <CardContent>
+                <CardContent className="space-y-2">
                   {imageModels.map((m, i) => (
-                    <div
-                      key={i}
-                      className="flex items-center gap-2 p-2 border rounded bg-green-50 hover:bg-green-100 transition"
-                    >
+                    <div key={i} className="flex items-center gap-2 p-2 rounded-lg bg-green-50 hover:bg-green-100 transition shadow-sm">
                       <span className="font-medium text-green-800">{m.name}</span>
                     </div>
                   ))}
@@ -168,22 +117,20 @@ export default function ModerationPage() {
             </div>
           </TabsContent>
 
+          {/* Rules Tab */}
           <TabsContent value="rules">
             {!showAddForm && (
               <div className="flex justify-end mb-4">
-                <Button
-                  onClick={() => setShowAddForm(true)}
-                  className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold"
-                >
+                <Button className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold shadow-md" onClick={() => setShowAddForm(true)}>
                   <PlusCircle className="h-4 w-4" /> Add Rule
                 </Button>
               </div>
             )}
 
             {showAddForm && (
-              <Card className="mb-4 shadow-lg border border-blue-100">
+              <Card className="mb-4 shadow-xl border border-blue-100 rounded-2xl">
                 <CardHeader>
-                  <CardTitle className="text-blue-700">{editingRule ? "Edit Rule" : "Add New Rule"}</CardTitle>
+                  <CardTitle className="text-blue-700 font-semibold">{editingRule ? "Edit Rule" : "Add New Rule"}</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-3">
                   <input
@@ -191,26 +138,19 @@ export default function ModerationPage() {
                     placeholder="Rule Title"
                     value={newRuleTitle}
                     onChange={(e) => setNewRuleTitle(e.target.value)}
-                    className="w-full p-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-400"
+                    className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400 shadow-sm transition"
                   />
                   <textarea
                     placeholder="Rule Content"
                     value={newRuleContent}
                     onChange={(e) => setNewRuleContent(e.target.value)}
-                    className="w-full p-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-400 min-h-[80px]"
+                    className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400 shadow-sm min-h-[80px] transition"
                   />
-                  <div className="flex gap-2">
-                    <Button
-                      onClick={handleAddOrUpdateRule}
-                      className="bg-green-600 hover:bg-green-700 text-white font-semibold"
-                    >
+                  <div className="flex flex-col sm:flex-row gap-3">
+                    <Button onClick={handleAddOrUpdateRule} className="bg-green-600 hover:bg-green-700 text-white font-semibold shadow-md rounded-lg">
                       {editingRule ? "Update" : "Add"}
                     </Button>
-                    <Button
-                      variant="outline"
-                      onClick={() => { setShowAddForm(false); setEditingRule(null); }}
-                      className="border-gray-300"
-                    >
+                    <Button variant="outline" onClick={() => { setShowAddForm(false); setEditingRule(null); }} className="border-gray-300 rounded-lg shadow-sm">
                       Cancel
                     </Button>
                   </div>
@@ -222,43 +162,25 @@ export default function ModerationPage() {
               {rules.map((rule) => {
                 const isExpanded = expandedRuleIds.includes(rule.id)
                 return (
-                  <div
-                    key={rule.id}
-                    className="border rounded shadow-sm transition hover:shadow-md bg-white"
-                  >
-                    <div
-                      className="flex justify-between items-center p-3 cursor-pointer hover:bg-gray-50"
-                      onClick={() => toggleRule(rule.id)}
-                    >
+                  <div key={rule.id} className="border rounded-2xl shadow-sm hover:shadow-md bg-white transition">
+                    <div className="flex justify-between items-center p-4 cursor-pointer hover:bg-gray-50" onClick={() => toggleRule(rule.id)}>
                       <div>
-                        <div className="font-semibold text-blue-700">{rule.title}</div>
+                        <div className="font-semibold text-blue-700 text-lg">{rule.title}</div>
                         <div className="text-xs text-gray-400">
-                          {rule.published_at && (
-                            <>Published: {new Date(rule.published_at).toLocaleDateString()}</>
-                          )}
+                          {rule.published_at && <>Published: {new Date(rule.published_at).toLocaleDateString()}</>}
                         </div>
                       </div>
                       <div className="flex gap-2">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={(e) => { e.stopPropagation(); handleEditRule(rule); }}
-                          className="border-blue-300 text-blue-700 hover:bg-blue-50"
-                        >
+                        <Button size="sm" variant="outline" className="border-blue-300 text-blue-700 hover:bg-blue-50" onClick={(e) => { e.stopPropagation(); handleEditRule(rule); }}>
                           <Edit className="h-4 w-4 mr-1" /> Edit
                         </Button>
-                        <Button
-                          size="sm"
-                          variant="destructive"
-                          onClick={(e) => { e.stopPropagation(); handleDeleteRule(rule.id); }}
-                          className="bg-red-600 hover:bg-red-700 text-white"
-                        >
+                        <Button size="sm" variant="destructive" className="bg-red-600 hover:bg-red-700 text-white" onClick={(e) => { e.stopPropagation(); handleDeleteRule(rule.id); }}>
                           <Trash2 className="h-4 w-4 mr-1" /> Delete
                         </Button>
                       </div>
                     </div>
                     {isExpanded && (
-                      <div className="p-4 bg-gray-50 border-t text-gray-700 whitespace-pre-line">
+                      <div className="p-4 bg-gray-50 border-t text-gray-700 whitespace-pre-line rounded-b-2xl">
                         {rule.content}
                       </div>
                     )}

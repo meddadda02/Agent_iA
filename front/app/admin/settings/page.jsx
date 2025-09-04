@@ -97,11 +97,11 @@ export default function SettingsPage() {
 
   return (
     <AdminLayout>
-      <div className="max-w-md mx-auto mt-10 relative">
+      <div className="max-w-md mx-auto mt-12 relative animate-fadeIn">
         {/* Profile bubble */}
-        <div className="absolute -top-12 left-1/2 transform -translate-x-1/2">
+        <div className="absolute -top-16 left-1/2 transform -translate-x-1/2">
           {photo || user?.photo ? (
-            <div className="w-24 h-24 rounded-full border-4 border-white shadow-lg overflow-hidden">
+            <div className="w-28 h-28 rounded-full border-4 border-white shadow-xl overflow-hidden transition-transform hover:scale-105">
               <img
                 src={photo ? URL.createObjectURL(photo) : user.photo}
                 alt="Profile"
@@ -109,55 +109,82 @@ export default function SettingsPage() {
               />
             </div>
           ) : (
-            <div className="w-24 h-24 rounded-full border-4 border-white shadow-lg flex items-center justify-center bg-blue-500 text-white text-4xl font-bold">
+            <div className="w-28 h-28 rounded-full border-4 border-white shadow-xl flex items-center justify-center bg-blue-500 text-white text-5xl font-bold transition-transform hover:scale-105">
               {getInitial(user?.username)}
             </div>
           )}
         </div>
 
         {/* Form Card */}
-        <div className="bg-white p-8 rounded-2xl shadow-lg pt-20">
-          {error && <p className="text-red-500 mb-4 text-center">{error}</p>}
+        <div className="bg-white p-8 rounded-3xl shadow-2xl pt-24 border border-gray-100">
+          {error && (
+            <p className="text-red-500 mb-4 text-center font-medium">{error}</p>
+          )}
 
           {!user ? (
-            <p className="text-center text-gray-500">Loading user data...</p>
+            <p className="text-center text-gray-400 text-lg animate-pulse">
+              Loading user data...
+            </p>
           ) : (
             <form onSubmit={handleSubmit} className="space-y-6">
               <div>
-                <label className="block text-sm font-medium text-gray-700">Username</label>
+                <label className="block text-sm font-semibold text-gray-700 mb-1">
+                  Username
+                </label>
                 <input
                   type="text"
                   name="username"
                   value={formData.username}
                   onChange={handleChange}
-                  className="mt-2 block w-full border-gray-300 rounded-lg shadow-sm p-3 focus:ring-2 focus:ring-blue-400 focus:outline-none"
+                  placeholder="Enter username"
+                  className="mt-1 block w-full border-gray-300 rounded-xl shadow-sm p-3 focus:ring-2 focus:ring-blue-400 focus:border-blue-400 outline-none transition"
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700">Email</label>
+                <label className="block text-sm font-semibold text-gray-700 mb-1">
+                  Email
+                </label>
                 <input
                   type="email"
                   name="email"
                   value={formData.email}
                   onChange={handleChange}
-                  className="mt-2 block w-full border-gray-300 rounded-lg shadow-sm p-3 focus:ring-2 focus:ring-blue-400 focus:outline-none"
+                  placeholder="Enter email"
+                  className="mt-1 block w-full border-gray-300 rounded-xl shadow-sm p-3 focus:ring-2 focus:ring-blue-400 focus:border-blue-400 outline-none transition"
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700">Change Profile Photo</label>
-                <input type="file" onChange={handlePhotoChange} className="mt-2" />
+                <label className="block text-sm font-semibold text-gray-700 mb-1">
+                  Change Profile Photo
+                </label>
+                <input
+                  type="file"
+                  onChange={handlePhotoChange}
+                  className="mt-2 block w-full text-sm text-gray-600"
+                />
                 {photo && (
-                  <p className="mt-2 text-sm text-gray-600">Selected file: {photo.name}</p>
+                  <p className="mt-2 text-sm text-gray-500 italic">
+                    Selected file: {photo.name}
+                  </p>
                 )}
               </div>
 
-              <div className="flex justify-between items-center mt-6">
-                <Button type="submit" className="px-6 py-3" disabled={loading}>
+              <div className="flex flex-col sm:flex-row justify-between gap-4 mt-6">
+                <Button
+                  type="submit"
+                  className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 rounded-xl shadow-md transition"
+                  disabled={loading}
+                >
                   {loading ? "Updating..." : "Update Profile"}
                 </Button>
-                <Button type="button" variant="destructive" className="px-6 py-3" onClick={handleDelete}>
+                <Button
+                  type="button"
+                  variant="destructive"
+                  className="w-full sm:w-auto py-3 rounded-xl shadow-md transition"
+                  onClick={handleDelete}
+                >
                   Delete Account
                 </Button>
               </div>

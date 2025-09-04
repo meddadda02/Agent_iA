@@ -33,7 +33,7 @@ export default function UsersPage() {
       setUsers(data)
     } catch (error) {
       console.error("Error fetching users:", error)
-      setUsers([]) // pas de mock
+      setUsers([])
     } finally {
       setLoading(false)
     }
@@ -74,7 +74,7 @@ export default function UsersPage() {
     return (
       <AdminLayout>
         <div className="flex items-center justify-center h-64">
-          <div className="text-lg">Loading users...</div>
+          <div className="animate-pulse text-lg text-gray-500">Loading users...</div>
         </div>
       </AdminLayout>
     )
@@ -82,102 +82,112 @@ export default function UsersPage() {
 
   return (
     <AdminLayout>
-      <div className="space-y-6">
-        <div className="flex items-center justify-between">
+      <div className="space-y-8">
+        {/* HEADER */}
+        <div className="flex items-center justify-between bg-gradient-to-r from-gray-50 to-gray-100 p-4 rounded-2xl shadow-sm">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">Users</h1>
-            <p className="text-gray-600">Manage all users in the system</p>
+            <h1 className="text-3xl font-bold text-gray-900">Users</h1>
+            <p className="text-gray-500">Manage all users in the system</p>
           </div>
           <Link href="/admin/users/create">
-            <Button>
+            <Button className="bg-blue-600 hover:bg-blue-700 text-white rounded-xl shadow-md px-4 py-2">
               <Plus className="h-4 w-4 mr-2" />
               Add User
             </Button>
           </Link>
         </div>
 
-        <Card>
-          <CardHeader>
-            <div className="flex items-center space-x-2">
-              <div className="relative flex-1 max-w-sm">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
-                <Input
-                  placeholder="Search users..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="pl-10"
-                />
-              </div>
+        {/* SEARCH + TABLE */}
+        <Card className="rounded-2xl shadow-lg border border-gray-100">
+          <CardHeader className="pb-2">
+            <div className="relative flex-1 max-w-sm">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-5 w-5" />
+              <Input
+                placeholder="Search users..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="pl-10 rounded-xl border-gray-200 focus:ring-2 focus:ring-blue-500"
+              />
             </div>
           </CardHeader>
           <CardContent>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>User</TableHead>
-                  <TableHead>Email</TableHead>
-                  <TableHead>Role</TableHead>
-                  <TableHead>Created</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredUsers.map((user) => (
-                  <TableRow key={user.id}>
-                    <TableCell>
-                      <div className="flex items-center space-x-3">
-                        <div className="h-8 w-8 rounded-full bg-gray-200 flex items-center justify-center">
-                          {user.photo ? (
-                            <img
-                              src={user.photo || "/placeholder.svg"}
-                              alt={user.username}
-                              className="h-8 w-8 rounded-full"
-                            />
-                          ) : (
-                            <span className="text-sm font-medium text-gray-600">
-                              {user.username?.charAt(0).toUpperCase()}
-                            </span>
-                          )}
-                        </div>
-                        <span className="font-medium">{user.username}</span>
-                      </div>
-                    </TableCell>
-                    <TableCell>{user.email}</TableCell>
-                    <TableCell>
-                      <Badge variant={user.role === "admin" ? "default" : "secondary"}>{user.role}</Badge>
-                    </TableCell>
-                    <TableCell>{formatDate(user.created_at)}</TableCell>
-                    <TableCell className="text-right">
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="sm">
-                            <MoreHorizontal className="h-4 w-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem asChild>
-                            <Link href={`/admin/users/${user.id}`}>
-                              <Eye className="h-4 w-4 mr-2" />
-                              View
-                            </Link>
-                          </DropdownMenuItem>
-                          <DropdownMenuItem asChild>
-                            <Link href={`/admin/users/${user.id}/edit`}>
-                              <Edit className="h-4 w-4 mr-2" />
-                              Edit
-                            </Link>
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => handleDeleteUser(user.id)} className="text-red-600">
-                            <Trash2 className="h-4 w-4 mr-2" />
-                            Delete
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </TableCell>
+            <div className="overflow-hidden rounded-xl border border-gray-100 shadow-sm">
+              <Table>
+                <TableHeader className="bg-gray-50">
+                  <TableRow>
+                    <TableHead className="text-gray-700 font-semibold">User</TableHead>
+                    <TableHead className="text-gray-700 font-semibold">Email</TableHead>
+                    <TableHead className="text-gray-700 font-semibold">Role</TableHead>
+                    <TableHead className="text-gray-700 font-semibold">Created</TableHead>
+                    <TableHead className="text-right text-gray-700 font-semibold">Actions</TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                </TableHeader>
+                <TableBody>
+                  {filteredUsers.map((user) => (
+                    <TableRow key={user.id} className="hover:bg-gray-50 transition">
+                      <TableCell>
+                        <div className="flex items-center space-x-3">
+                          <div className="h-10 w-10 rounded-full bg-gradient-to-tr from-blue-100 to-blue-200 flex items-center justify-center shadow-inner">
+                            {user.photo ? (
+                              <img
+                                src={user.photo || "/placeholder.svg"}
+                                alt={user.username}
+                                className="h-10 w-10 rounded-full object-cover"
+                              />
+                            ) : (
+                              <span className="text-sm font-bold text-blue-700">
+                                {user.username?.charAt(0).toUpperCase()}
+                              </span>
+                            )}
+                          </div>
+                          <span className="font-medium text-gray-900">{user.username}</span>
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-gray-600">{user.email}</TableCell>
+                      <TableCell>
+                        <Badge
+                          variant={user.role === "admin" ? "default" : "secondary"}
+                          className="px-2 py-1 rounded-lg text-xs font-medium"
+                        >
+                          {user.role}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-gray-500">{formatDate(user.created_at)}</TableCell>
+                      <TableCell className="text-right">
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="sm" className="hover:bg-gray-100 rounded-lg">
+                              <MoreHorizontal className="h-4 w-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" className="rounded-xl shadow-lg border border-gray-100">
+                            <DropdownMenuItem asChild>
+                              <Link href={`/admin/users/${user.id}`} className="flex items-center">
+                                <Eye className="h-4 w-4 mr-2 text-blue-600" />
+                                View
+                              </Link>
+                            </DropdownMenuItem>
+                            <DropdownMenuItem asChild>
+                              <Link href={`/admin/users/${user.id}/edit`} className="flex items-center">
+                                <Edit className="h-4 w-4 mr-2 text-green-600" />
+                                Edit
+                              </Link>
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onClick={() => handleDeleteUser(user.id)}
+                              className="flex items-center text-red-600"
+                            >
+                              <Trash2 className="h-4 w-4 mr-2" />
+                              Delete
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
           </CardContent>
         </Card>
       </div>

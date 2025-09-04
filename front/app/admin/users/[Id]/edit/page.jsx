@@ -14,7 +14,6 @@ import Link from "next/link"
 
 export default function EditUserPage({ params }) {
   const router = useRouter()
-  // Unwrap params using React.use() for future compatibility
   const actualParams = React.use(params)
   const { Id } = actualParams
 
@@ -54,8 +53,8 @@ export default function EditUserPage({ params }) {
 
   const handleInputChange = (e) => {
     const { name, value } = e.target
-    setFormData(prev => ({ ...prev, [name]: value }))
-    if (errors[name]) setErrors(prev => ({ ...prev, [name]: "" }))
+    setFormData((prev) => ({ ...prev, [name]: value }))
+    if (errors[name]) setErrors((prev) => ({ ...prev, [name]: "" }))
   }
 
   const validateForm = () => {
@@ -99,41 +98,51 @@ export default function EditUserPage({ params }) {
     }
   }
 
-  if (loading) return (
-    <AdminLayout>
-      <div className="flex items-center justify-center h-64 text-gray-700">Loading user data...</div>
-    </AdminLayout>
-  )
+  if (loading)
+    return (
+      <AdminLayout>
+        <div className="flex items-center justify-center h-64 text-gray-500 text-lg animate-pulse">
+          Loading user data...
+        </div>
+      </AdminLayout>
+    )
 
   return (
     <AdminLayout>
-      <div className="space-y-6">
+      <div className="space-y-6 animate-fadeIn">
         {/* Header */}
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between bg-white px-4 py-3 rounded-lg shadow-sm border">
           <div className="flex items-center space-x-4">
             <Link href="/admin/users">
-              <Button variant="ghost" size="sm">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="hover:bg-indigo-50 hover:text-indigo-600 transition-colors"
+              >
                 <ArrowLeft className="h-4 w-4 mr-2" />
                 Back to Users
               </Button>
             </Link>
             <div>
               <h1 className="text-2xl font-bold text-gray-900">Edit User</h1>
-              <p className="text-gray-600">Modify user information and role</p>
+              <p className="text-sm text-gray-500">Modify user information and role</p>
             </div>
           </div>
         </div>
+
         {/* Edit User Form Card */}
-        <div className="max-w-xl">
-          <Card className="shadow-lg rounded-lg border border-gray-100">
+        <div className="max-w-xl mx-auto">
+          <Card className="shadow-xl rounded-2xl border border-gray-100 hover:shadow-2xl transition-shadow">
             <CardHeader>
-              <CardTitle className="text-lg font-semibold">User Information</CardTitle>
+              <CardTitle className="text-lg font-semibold text-gray-800">User Information</CardTitle>
             </CardHeader>
             <CardContent>
-              {errors.fetch && <div className="mb-4 text-sm text-red-600">{errors.fetch}</div>}
+              {errors.fetch && (
+                <div className="mb-4 text-sm text-red-600">{errors.fetch}</div>
+              )}
               <form onSubmit={handleSubmit} className="space-y-5">
                 {errors.submit && (
-                  <div className="p-3 text-sm text-red-700 bg-red-50 border border-red-200 rounded">
+                  <div className="p-3 text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg">
                     {errors.submit}
                   </div>
                 )}
@@ -146,9 +155,15 @@ export default function EditUserPage({ params }) {
                     value={formData.username}
                     onChange={handleInputChange}
                     placeholder="Enter username"
-                    className={errors.username ? "border-red-500 focus:ring-red-500" : ""}
+                    className={`rounded-lg shadow-sm focus:ring-2 transition ${
+                      errors.username
+                        ? "border-red-500 focus:ring-red-500"
+                        : "focus:ring-indigo-500 focus:border-indigo-500"
+                    }`}
                   />
-                  {errors.username && <p className="text-sm text-red-600">{errors.username}</p>}
+                  {errors.username && (
+                    <p className="text-sm text-red-600">{errors.username}</p>
+                  )}
                 </div>
 
                 <div className="space-y-2">
@@ -160,18 +175,26 @@ export default function EditUserPage({ params }) {
                     value={formData.email}
                     onChange={handleInputChange}
                     placeholder="Enter email"
-                    className={errors.email ? "border-red-500 focus:ring-red-500" : ""}
+                    className={`rounded-lg shadow-sm focus:ring-2 transition ${
+                      errors.email
+                        ? "border-red-500 focus:ring-red-500"
+                        : "focus:ring-indigo-500 focus:border-indigo-500"
+                    }`}
                   />
-                  {errors.email && <p className="text-sm text-red-600">{errors.email}</p>}
+                  {errors.email && (
+                    <p className="text-sm text-red-600">{errors.email}</p>
+                  )}
                 </div>
 
                 <div className="space-y-2">
                   <Label htmlFor="role">Role</Label>
                   <Select
                     value={formData.role}
-                    onValueChange={(value) => setFormData(prev => ({ ...prev, role: value }))}
+                    onValueChange={(value) =>
+                      setFormData((prev) => ({ ...prev, role: value }))
+                    }
                   >
-                    <SelectTrigger className="border-gray-300 focus:border-indigo-500 focus:ring-indigo-500">
+                    <SelectTrigger className="rounded-lg border-gray-300 focus:ring-indigo-500 focus:border-indigo-500 transition">
                       <SelectValue placeholder="Select role" />
                     </SelectTrigger>
                     <SelectContent>
@@ -184,7 +207,7 @@ export default function EditUserPage({ params }) {
                 <Button
                   type="submit"
                   disabled={submitting}
-                  className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-2 rounded shadow"
+                  className="w-full bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-medium py-2.5 rounded-lg shadow-md transition"
                 >
                   {submitting ? "Updating..." : "Update User"}
                 </Button>
