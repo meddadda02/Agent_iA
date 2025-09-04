@@ -1,4 +1,5 @@
 from fastapi import APIRouter, UploadFile, File, HTTPException, Depends, status
+from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 from typing import List
 import os, json, shutil
@@ -26,7 +27,6 @@ async def analyze_video_route(
     if not file.content_type or not file.content_type.startswith("video/"):
         raise HTTPException(status_code=400, detail="Le fichier doit être une vidéo.")
 
-    # Persist upload to disk (temp)
     os.makedirs("uploads", exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
     filename = f"{timestamp}_{file.filename}"
@@ -60,7 +60,7 @@ async def analyze_video_route(
             db.commit()
             db.refresh(record)
             
-            return {
+            return JSONResponse(content={
                 "analysis_id": record.id,
                 "date": record.date.isoformat() if record.date else None,
                 "filename": filename,
@@ -77,8 +77,9 @@ async def analyze_video_route(
                     "copyright_analysis": youtube_copyright_result,
                     "youtube_report": copyright_service.generate_youtube_style_report(youtube_copyright_result)
                 }
-            }
-        
+            })
+
+        # ✅ Full pipeline
         report = await analyze_video_full(
             video_path=path,
             db=db,
@@ -88,6 +89,7 @@ async def analyze_video_route(
             language_hint=langue
         )
 
+        # Inject copyright info
         report["copyright_analysis"] = youtube_copyright_result
         report["youtube_report"] = copyright_service.generate_youtube_style_report(youtube_copyright_result)
         report["automatic_action"] = youtube_copyright_result.get("automatic_action", "allow")
@@ -103,7 +105,7 @@ async def analyze_video_route(
 
         record = Analyzer(
             user_id=current_user.id,
-            question=filename,                       # keep filename as "question"
+            question=filename,
             response=json.dumps(report, ensure_ascii=False),
             toxic=is_toxic,
             type="video"
@@ -138,9 +140,9 @@ async def analyze_video_route(
                     "user_options": youtube_copyright_result.get("user_options", [])
                 }
 
-        return response_data
+        return JSONResponse(content=response_data)
+
     finally:
-        # Cleanup
         try:
             os.remove(path)
         except Exception:

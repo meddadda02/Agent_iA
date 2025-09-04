@@ -554,8 +554,14 @@ def delete_rule(
     db.commit()
     return {"detail": "Rule deleted successfully"}
 
-#from Services.rules_refresh import refresh_rules_job
-#@router.post("/refresh-rules")
-#async def refresh_rules():
-#    refresh_rules_job()
-#    return {"message": "Rules refreshed successfully"}
+import subprocess
+import sys
+
+@router.post("/refresh-rules")
+def refresh_rules():
+    try:
+        subprocess.run([sys.executable, "policy-ingestion-mvp/sitemap_crawler.py"], check=True)
+        subprocess.run([sys.executable, "policy-ingestion-mvp/policy_parser_ai.py"], check=True)
+        return {"message": "Rules refreshed successfully"}
+    except subprocess.CalledProcessError as e:
+        raise HTTPException(status_code=500, detail=f"Pipeline failed: {e}")

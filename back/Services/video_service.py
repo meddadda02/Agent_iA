@@ -179,7 +179,7 @@ async def analyze_video_full(
     frame_results: List[Dict] = []
     for p, ts in frame_paths:
         try:
-            detections = analyze_image_file(p)
+            detections = await analyze_image_file(p)
             caption = caption_frame(p)
             frame_result = {
                 "timestamp": _format_timestamp(ts),

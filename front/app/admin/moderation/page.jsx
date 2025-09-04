@@ -66,6 +66,23 @@ export default function ModerationPage() {
     } catch (e) { console.error(e) }
   }
 
+
+  const handleRefreshRules = async () => {
+  if (!token) return
+  try {
+    const res = await fetch("http://localhost:8000/admin/refresh-rules", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+    })
+    if (!res.ok) throw new Error("Refresh failed")
+    alert("Rules refreshed successfully ✅")
+    fetchData()
+  } catch (e) {
+    console.error(e)
+    alert("Failed to refresh rules ❌")
+  }
+}
+
   if (!token) return <AdminLayout><div>Loading token...</div></AdminLayout>
   if (loading) return <AdminLayout><div>Loading data...</div></AdminLayout>
 
@@ -121,11 +138,19 @@ export default function ModerationPage() {
           <TabsContent value="rules">
             {!showAddForm && (
               <div className="flex justify-end mb-4">
+
+                  <Button
+      onClick={handleRefreshRules}
+      className="flex items-center gap-2 bg-purple-600 hover:bg-purple-700 text-white font-semibold"
+    >
+      <RefreshCw className="h-4 w-4" /> Refresh Rules
+    </Button>
                 <Button className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold shadow-md" onClick={() => setShowAddForm(true)}>
                   <PlusCircle className="h-4 w-4" /> Add Rule
                 </Button>
               </div>
             )}
+
 
             {showAddForm && (
               <Card className="mb-4 shadow-xl border border-blue-100 rounded-2xl">

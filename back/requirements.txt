@@ -28,3 +28,5 @@ torchaudio==2.1.2
 transformers==4.38.2
 spacy==3.7.2
 opencv-python==4.9.0.80
+beautifulsoup4
+lxml
