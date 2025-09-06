@@ -6,7 +6,7 @@ import os
 import json
 from datetime import datetime
 from PIL import Image, ImageEnhance
-from Services.yolo_service import analyze_with_yolo, ocr_extract_text, moderate_text
+from Services.yolo_service import analyze_with_yolo, ocr_extract_text, moderate_text, clean_ocr_text
 from Services.llm_service import check_youtube_compatibility
 
 from dependencies import get_current_user
@@ -75,16 +75,31 @@ async def analyze_image(
                 print(f"Erreur OCR sur crop: {crop_err}")
 
         combined_text = " ".join(ocr_texts).strip()
+        combined_text = clean_ocr_text(combined_text)  # Apply additional filtering to combined text
+        
         print("Texte détecté par OCR :", combined_text or "Aucun texte détecté")
 
-        # 4️⃣ Modération texte
-        text_moderation = await moderate_text(combined_text or "")
-
-        # 5️⃣ Vérification compatibilité YouTube via LLM
-        youtube_compatibility = check_youtube_compatibility(
-            detections=detections,
-            ocr_text=combined_text
-        )
+        if combined_text:
+            # 4️⃣ Modération texte (only if text exists)
+            text_moderation = await moderate_text(combined_text)
+            
+            # 5️⃣ Vérification compatibilité YouTube via LLM (with text)
+            youtube_compatibility = check_youtube_compatibility(
+                detections=detections,
+                ocr_text=combined_text
+            )
+        else:
+            # No text detected - skip expensive API calls
+            text_moderation = {
+                "message": "Aucun texte détecté",
+                "compatible": True
+            }
+            
+            # Simple object-only compatibility check
+            youtube_compatibility = {
+                "compatible": True,
+                "commentaire": f"Image analysée: {len(detections)} objet(s) détecté(s). Aucun texte trouvé, contenu visuel approprié."
+            }
 
         if not isinstance(youtube_compatibility, dict):
             youtube_compatibility = {

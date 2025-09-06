@@ -490,7 +490,46 @@ export default function Chat() {
         const groq = (cm && cm.groq) || {}
         const status = groq.status || cm.status || report.status || "inconnu"
         const category = groq.category || cm.category || "video"
-        const reasoning = cm.reasoning || "Analyse vidéo terminée"
+        let reasoning = cm.reasoning || "Analyse vidéo terminée"
+
+// 👇 Include transcript (audio) timings
+if (report.transcript_segments && report.transcript_segments.length > 0) {
+  reasoning += "\n\n🎤 Transcription audio détectée:\n"
+  report.transcript_segments.forEach((seg, idx) => {
+    reasoning += `• Segment ${idx + 1}: ${seg.start} → ${seg.end}\n`
+    if (seg.text) reasoning += `   Texte: "${seg.text}"\n`
+  })
+}
+
+// 👇 Include frame (visual) timings
+if (report.visual_analysis && report.visual_analysis.length > 0) {
+  reasoning += "\n\n🖼️ Analyse visuelle des frames:\n"
+  report.visual_analysis.forEach((frame, idx) => {
+    reasoning += `• Frame ${idx + 1}: ${frame.timestamp}\n`
+    if (frame.caption) reasoning += `   Caption: ${frame.caption}\n`
+  })
+}
+
+// 👇 Existing segments
+if (report.segments && report.segments.length > 0) {
+  reasoning += "\n\n⏱️ Segments problématiques détectés:\n"
+  report.segments.forEach((seg, idx) => {
+    reasoning += `• Segment ${idx + 1}: ${seg.start_time} → ${seg.end_time}\n`
+    if (seg.reason) reasoning += `   Raison: ${seg.reason}\n`
+  })
+}
+
+// 👇 Violations
+if (report.text_moderation?.violations?.length > 0) {
+  reasoning += "\n\n🚨 Violations détectées:\n"
+  report.text_moderation.violations.forEach((vio, idx) => {
+    const start = vio.start || vio.timestamp || "?"
+    const end = vio.end || ""
+    reasoning += `• Violation ${idx + 1}: ${start}${end ? ` → ${end}` : ""}\n`
+    if (vio.violated_rules) reasoning += `   Règles: ${vio.violated_rules.join(", ")}\n`
+    if (vio.text) reasoning += `   Texte: "${vio.text}"\n`
+  })
+}
 
         setMessages((prev) => [
           ...prev,
