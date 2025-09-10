@@ -11,12 +11,15 @@ const ChatInterface = ({ onBack }) => {
       id: 1,
       type: "bot",
       content: "Hello! I'm your AI assistant. How can I help you today?",
+      msgType: "text",
       timestamp: new Date(),
     },
   ])
   const [inputValue, setInputValue] = useState("")
+  const [file, setFile] = useState(null) // image or video
   const [isTyping, setIsTyping] = useState(false)
   const messagesEndRef = useRef(null)
+  const fileInputRef = useRef(null)
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
@@ -27,25 +30,28 @@ const ChatInterface = ({ onBack }) => {
   }, [messages])
 
   const handleSendMessage = async () => {
-    if (!inputValue.trim()) return
+    if (!inputValue.trim() && !file) return
 
     const userMessage = {
       id: Date.now(),
       type: "user",
-      content: inputValue,
+      msgType: file ? (file.type.startsWith("video") ? "video" : "image") : "text",
+      content: file || inputValue,
       timestamp: new Date(),
     }
 
     setMessages((prev) => [...prev, userMessage])
     setInputValue("")
+    setFile(null)
     setIsTyping(true)
 
-    // Simulate bot response
+    // Simulated bot response
     setTimeout(() => {
       const botMessage = {
         id: Date.now() + 1,
         type: "bot",
-        content: "Thank you for your message! I'm processing your request and will get back to you shortly.",
+        msgType: "text",
+        content: "Thanks! I've received your message and will process it.",
         timestamp: new Date(),
       }
       setMessages((prev) => [...prev, botMessage])
@@ -60,9 +66,17 @@ const ChatInterface = ({ onBack }) => {
     }
   }
 
+  const handleFileSelect = (e) => {
+    const selected = e.target.files[0]
+    if (selected) {
+      setFile(selected)
+    }
+  }
+
   return (
     <Layout className="chat-layout">
       <div className="chat-interface">
+        {/* Header */}
         <div className="chat-interface__header">
           <Button variant="secondary" size="small" onClick={onBack} className="chat-interface__back-btn">
             ← Back
@@ -74,10 +88,27 @@ const ChatInterface = ({ onBack }) => {
           </div>
         </div>
 
+        {/* Messages */}
         <div className="chat-interface__messages">
           {messages.map((message) => (
             <div key={message.id} className={`chat-message chat-message--${message.type}`}>
-              <div className="chat-message__content">{message.content}</div>
+              <div className="chat-message__content">
+                {message.msgType === "text" && <p>{message.content}</p>}
+                {message.msgType === "image" && (
+                  <img
+                    src={URL.createObjectURL(message.content)}
+                    alt="sent"
+                    className="chat-message__media"
+                  />
+                )}
+                {message.msgType === "video" && (
+                  <video
+                    src={URL.createObjectURL(message.content)}
+                    controls
+                    className="chat-message__media"
+                  />
+                )}
+              </div>
               <div className="chat-message__timestamp">
                 {message.timestamp.toLocaleTimeString([], {
                   hour: "2-digit",
@@ -102,6 +133,7 @@ const ChatInterface = ({ onBack }) => {
           <div ref={messagesEndRef} />
         </div>
 
+        {/* Input Section */}
         <div className="chat-interface__input">
           <textarea
             value={inputValue}
@@ -111,11 +143,29 @@ const ChatInterface = ({ onBack }) => {
             className="chat-interface__textarea"
             rows="2"
           />
+
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*,video/*"
+            hidden
+            onChange={handleFileSelect}
+          />
+
+          <Button
+            variant="secondary"
+            size="medium"
+            onClick={() => fileInputRef.current.click()}
+            className="chat-interface__send-btn"
+          >
+            📎
+          </Button>
+
           <Button
             variant="primary"
             size="medium"
             onClick={handleSendMessage}
-            disabled={!inputValue.trim()}
+            disabled={!inputValue.trim() && !file}
             className="chat-interface__send-btn"
           >
             Send

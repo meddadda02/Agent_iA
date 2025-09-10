@@ -7,3 +7,7 @@ __pycache__/
 .idea/
 .env
 venv310/
+.requirements.txt
+node_modules/
+yolov8x.pt
+/back/uploads
