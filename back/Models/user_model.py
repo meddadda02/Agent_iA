@@ -13,7 +13,7 @@ class User(Base):
     photo = Column(String, nullable=True)
     password_hash = Column(String, nullable=False)
     Confirm_password_hash = Column(String, nullable=False)
-    role = Column(String, nullable=False, server_default="user")  # 👈 Nouveau champ
+    role = Column(String, nullable=False, server_default="user") 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     jwt_token = Column(String, nullable=True)
 

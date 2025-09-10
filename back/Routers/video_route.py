@@ -79,7 +79,6 @@ async def analyze_video_route(
                 }
             })
 
-        # ✅ Full pipeline
         report = await analyze_video_full(
             video_path=path,
             db=db,

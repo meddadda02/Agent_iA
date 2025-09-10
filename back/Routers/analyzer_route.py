@@ -50,12 +50,10 @@ async def get_moderation_history(
                 )
             except Exception as inner_e:
                 print(f"⚠️ Erreur lors du traitement de l'analyse ID {analysis.id} pour l'utilisateur {current_user.id}: {type(inner_e).__name__}: {inner_e}")
-                # Continue to next analysis if one fails, rather than crashing the whole request
                 continue
 
         return response_data
     except HTTPException:
-        # Re-raise HTTPException if it was already raised by the inner try-except
         raise
     except Exception as e:
         # Catch any other unexpected errors

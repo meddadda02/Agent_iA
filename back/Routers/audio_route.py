@@ -379,13 +379,12 @@ async def moderate_audio_file(
         reco_text = str(ca.get("recommendation", "")).lower()
         implies_protection = any(kw in reco_text for kw in ["protégée", "copyright", "droits d'auteur", "licensed", "obtenir une licence", "obtenir des licences"]) 
         
-        # Log pour debug
         print(f"🔍 Analyse copyright: protected={ca.get('copyright_protected')}, strike={strike}, conf={conf}, implies={implies_protection}")
         
         high_risk_music = bool(
             ca.get("music_detected") and (
                 ca.get("copyright_protected")
-                or strike in {"high", "critical"}  # Parodie/remix = risque critique même si pas "protégé"
+                or strike in {"high", "critical"}  
                 or conf >= 0.9
                 or implies_protection
             )
@@ -419,12 +418,10 @@ async def moderate_audio_file(
         else:
             block_msg = "🚫 PUBLICATION BLOQUÉE: Contenu non conforme détecté dans l'audio."
 
-        # Calcul du segment temporel s'il y a un offset fourni (ACRCloud)
         seg = None
         try:
             offset_ms = None
             duration_ms = None
-            # offset peut venir soit du copyright_analysis (ACR) soit du résultat brut
             if "play_offset_ms" in ca_source and isinstance(ca_source.get("play_offset_ms"), (int, float)):
                 offset_ms = int(ca_source.get("play_offset_ms") or 0)
             elif "play_offset_ms" in result and isinstance(result.get("play_offset_ms"), (int, float)):
@@ -432,7 +429,6 @@ async def moderate_audio_file(
             elif isinstance(ca.get("play_offset_ms"), (int, float)):
                 offset_ms = int(ca.get("play_offset_ms") or 0)
 
-            # récupérer la durée si disponible
             if "duration_ms" in ca_source and isinstance(ca_source.get("duration_ms"), (int, float)):
                 duration_ms = int(ca_source.get("duration_ms") or 0)
             elif "duration_ms" in result and isinstance(result.get("duration_ms"), (int, float)):
@@ -441,9 +437,7 @@ async def moderate_audio_file(
                 duration_ms = int(ca.get("duration_ms") or 0)
 
             if offset_ms is not None and offset_ms >= 0:
-                # fenêtre +/- 15s autour de l'offset
                 window = 15000
-                # si offset dépasse la durée connue, le borner à la fin - 1s
                 if isinstance(duration_ms, int) and duration_ms > 0 and offset_ms > duration_ms:
                     offset_ms = max(0, duration_ms - 1000)
 
@@ -451,7 +445,6 @@ async def moderate_audio_file(
                 end_ms = offset_ms + window
                 if isinstance(duration_ms, int) and duration_ms > 0:
                     end_ms = min(end_ms, duration_ms)
-                    # s'assurer d'une fenêtre raisonnable si proche de la fin
                     if start_ms >= end_ms:
                         start_ms = max(0, end_ms - (2 * window))
                 minute_index = offset_ms // 60000
@@ -480,7 +473,6 @@ async def moderate_audio_file(
             "copyrighted_segment": seg,
         }
 
-        # Construire le bloc content_moderation minimal demandé
         groq_block = result.get("groq") or {}
         content_moderation = {
             "status": groq_block.get("status") or result.get("status", "conforme"),

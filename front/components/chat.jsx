@@ -286,8 +286,7 @@ export default function Chat() {
 
       setMessages((prev) => [...prev, analysisMsg])
 
-      // After successful analysis, re-fetch history to get the new item with its actual ID
-      // await fetchHistory() // Commented out to prevent duplication
+      // await fetchHistory() 
     } catch (error) {
       const msg = typeof error?.message === "string" ? error.message : "Erreur pendant l'analyse"
       setMessages((prev) => [
@@ -484,7 +483,6 @@ export default function Chat() {
         if (!res.ok) throw new Error("Erreur pendant l'analyse vidéo")
         const data = await res.json()
 
-        // Try to extract moderation-like fields if present, fallback to generic
         const report = data.report || {}
         const cm = report.content_moderation || {}
         const groq = (cm && cm.groq) || {}
@@ -501,7 +499,6 @@ if (report.transcript_segments && report.transcript_segments.length > 0) {
   })
 }
 
-// 👇 Include frame (visual) timings
 if (report.visual_analysis && report.visual_analysis.length > 0) {
   reasoning += "\n\n🖼️ Analyse visuelle des frames:\n"
   report.visual_analysis.forEach((frame, idx) => {
@@ -510,7 +507,6 @@ if (report.visual_analysis && report.visual_analysis.length > 0) {
   })
 }
 
-// 👇 Existing segments
 if (report.segments && report.segments.length > 0) {
   reasoning += "\n\n⏱️ Segments problématiques détectés:\n"
   report.segments.forEach((seg, idx) => {

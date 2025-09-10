@@ -63,7 +63,7 @@ async def login(
             )
 
         access_token = JWTService.create_access_token(
-            data={"sub": user.username, "role": user.role}  # 👈 Rôle réel
+            data={"sub": user.username, "role": user.role}  #Rôle réel
         )
         user.jwt_token = access_token
         db.commit()
