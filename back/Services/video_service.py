@@ -23,6 +23,29 @@ blip_model = BlipForConditionalGeneration.from_pretrained(
     "Salesforce/blip-image-captioning-large"
 ).to(device)
 
+
+def build_segment(timestamp: float, window: int = 15):
+    """
+    Build a segment window around a timestamp in seconds.
+    Returns dict with minute index, start/end times in mm:ss.
+    """
+    start = max(0, timestamp - window)
+    end = timestamp + window
+
+    def fmt(sec: float) -> str:
+        m, s = divmod(int(sec), 60)
+        return f"{m:02d}:{s:02d}"
+
+    return {
+        "minute_index": int(timestamp // 60),
+        "offset_s": int(timestamp),
+        "start_s": int(start),
+        "end_s": int(end),
+        "start_time": fmt(start),
+        "end_time": fmt(end),
+    }
+
+
 def _format_timestamp(seconds: float) -> str:
     return str(timedelta(seconds=int(seconds)))
 
@@ -155,6 +178,64 @@ def _iterate_frames(video_path: str, interval_ms: int) -> List[Tuple[str, float]
     cap.release()
     return frames
 
+
+def format_compliance_report(report: Dict) -> str:
+    """
+    Take raw analyze_video_full JSON report and return a
+    human-readable compliance summary.
+    """
+
+    violations = report.get("text_moderation", {}).get("violations", [])
+    toxic = report.get("text_moderation", {}).get("status") == "non_conforme"
+
+    # Compute a mock score (you can refine your scoring logic here)
+    content_score = 40 if not toxic else 20
+    publication_score = 30 if not violations else 0
+    copyright_score = 20  # TODO: integrate with your copyright checker
+    lyrics_score = 10     # TODO: integrate if you analyze lyrics
+
+    total_score = content_score + publication_score + copyright_score + lyrics_score
+    percentage = int((total_score / 100) * 100)
+
+    # Risk & automatic action
+    automatic_action = "✅ Autorisé" if total_score >= 70 else "❌ Bloqué"
+
+    # Build summary string
+    lines = []
+    lines.append(f"{percentage}%")
+    lines.append("Score de conformité")
+    if total_score >= 70:
+        lines.append("Élevé ✅")
+    elif total_score >= 40:
+        lines.append("Moyen ⚠️")
+    else:
+        lines.append("Faible ❌")
+    lines.append("")
+    lines.append(f"📊 Détail du score: Contenu: {content_score}/40 pts "
+                 f"{'✅' if content_score==40 else '❌'} • "
+                 f"Publication: {publication_score}/30 pts "
+                 f"{'✅' if publication_score>0 else '❌'} • "
+                 f"Droits d'auteur: {copyright_score}/20 pts "
+                 f"{'✅' if copyright_score>0 else '❌'} • "
+                 f"Paroles: {lyrics_score}/10 pts "
+                 f"{'✅' if lyrics_score>0 else '❌'}")
+    lines.append("")
+
+    # Violations summary
+    if violations:
+        lines.append("🚫 Violations détectées:")
+        for v in violations:
+            lines.append(f"• [{v['type']}] {v.get('text','')[:80]}… "
+                         f"(⏱️ {v['segment']['start_time']} - {v['segment']['end_time']})")
+    else:
+        lines.append("✅ Aucun problème détecté")
+
+    lines.append("")
+    lines.append(f"Action automatique: {automatic_action}")
+
+    return "\n".join(lines)
+
+
 # ---------- Main entry ----------
 async def analyze_video_full(
     video_path: str,
@@ -187,7 +268,7 @@ async def analyze_video_full(
                 "caption": caption
             }
             frame_results.append(frame_result)
-            # optional moderation on captions
+            # moderation on captions
             moderation = await ModerationService.check_content_comprehensive(
                 text=caption, model=model, db=db,
                 user_id=user_id, language=language_hint or "auto",
@@ -198,13 +279,16 @@ async def analyze_video_full(
                     "type": "frame",
                     "timestamp": _format_timestamp(ts),
                     "text": caption,
+                    "segment": build_segment(ts),
                     "violated_rules": moderation.get("violated_rules", [])
                 })
         except Exception as e:
             print(f"⚠️ Frame analyze error: {e}")
         finally:
-            try: os.unlink(p)
-            except Exception: pass
+            try:
+                os.unlink(p)
+            except Exception:
+                pass
     report["visual_analysis"] = frame_results
 
     # 2) Subtitles
@@ -217,11 +301,19 @@ async def analyze_video_full(
             entry_type="video"
         )
         if moderation.get("status") == "non_conforme":
+            # ⚡ Estimate midpoint timestamp from start/end
+            try:
+                h1, m1, s1 = map(float, sub["start"].replace(',', ':').split(':'))
+                h2, m2, s2 = map(float, sub["end"].replace(',', ':').split(':'))
+                mid = (h1*3600+m1*60+s1 + h2*3600+m2*60+s2) / 2.0
+            except Exception:
+                mid = 0.0
             violations.append({
                 "type": "subtitle",
                 "start": sub["start"],
                 "end": sub["end"],
                 "text": sub["text"],
+                "segment": build_segment(mid),
                 "violated_rules": moderation.get("violated_rules", [])
             })
 
@@ -238,16 +330,23 @@ async def analyze_video_full(
             entry_type="video"
         )
         if moderation.get("status") == "non_conforme":
+            try:
+                # seg["start"] and seg["end"] are like "00:00:30"
+                h1, m1, s1 = map(int, seg["start"].split(":"))
+                h2, m2, s2 = map(int, seg["end"].split(":"))
+                mid = ((h1*3600+m1*60+s1) + (h2*3600+m2*60+s2)) / 2.0
+            except Exception:
+                mid = 0.0
             violations.append({
                 "type": "transcript",
                 "start": seg["start"],
                 "end": seg["end"],
                 "text": seg["text"],
+                "segment": build_segment(mid),
                 "violated_rules": moderation.get("violated_rules", [])
             })
-
     # 4) Global summary
-    toxic = any(v for v in violations)
+    toxic = bool(violations)
     report["text_moderation"] = {
         "status": "non_conforme" if toxic else "conforme",
         "violations": violations
@@ -260,4 +359,9 @@ async def analyze_video_full(
         "violations_count": len(violations)
     }
 
-    return report
+    return {    
+        "summary": format_compliance_report(report),
+        "summary": report["summary"],                     # dict for logic
+        "raw": report  # optional, for backend use only
+    }
+
